@@ -40,7 +40,6 @@ def visualize(model, dataloader, cfg, step, subset):
         cfg.exp_dir,
         f'visualizations/{subset}_'+str(step).zfill(6))
     io.mkdir_if_not_exists(vis_dir, recursive=True)
-    io.mkdir_if_not_exists(cfg.ckpt_dir, recursive=True)
 
     html_writer = HtmlWriter(os.path.join(vis_dir, 'index.html'))
     html_writer.add_element({
@@ -91,9 +90,9 @@ def visualize(model, dataloader, cfg, step, subset):
                 gt = t['bbox'].detach().cpu().numpy()
                 vis_bbox(gt, vis_img, color=(0, 255, 0), modify=True, fmt='xyxy')
 
-                pred = seq2bbox(pred_seqs[i], *vis_img.shape[:2], num_bins=model.num_bins)
-                if pred is not None:
-                    vis_bbox(pred, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
+                bbox = seq2bbox(pred_seqs[i], num_bins=cfg.model.num_bins)
+                if bbox is not None:
+                    vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
                 gt = t['mask'].detach().cpu().numpy()
                 vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
@@ -235,7 +234,7 @@ def train_worker(gpu, cfg):
     model_selection_metric = 0
     best_metric = 0
     best_epoch = -1
-    if cfg.training.ckpt is not None:
+    if os.path.exists(cfg.training.ckpt):
         loc = 'cuda:{}'.format(cfg.gpu)
         ckpt = torch.load(cfg.training.ckpt, map_location=loc)
         state_dict = model.state_dict()
@@ -285,7 +284,7 @@ def train_worker(gpu, cfg):
             if gpu == 0:
                 print('Warmup iters:', warmup_iters)
 
-        if cfg.training.ckpt is not None:
+        if os.path.exists(cfg.training.ckpt):
             warmup_scheduler.load_state_dict(ckpt['warmup_scheduler'])
 
     if cfg.training.lr_warmup and not cfg.training.lr_linear_decay:
@@ -428,6 +427,7 @@ def train_worker(gpu, cfg):
 def main(cfg):
     io.mkdir_if_not_exists(cfg.ckpt_dir, recursive=True)
     io.mkdir_if_not_exists(cfg.tb_dir, recursive=True)
+    io.mkdir_if_not_exists(cfg.model.store_path, recursive=True)
     # nltk.download('punkt')
     
     if cfg.training.freeze:

@@ -98,7 +98,7 @@ class ViTo(nn.Module):
         self.criterion = SequenceModelingLoss(self.cfg.loss)
 
         self.pos_enc = nn.Parameter(positionalencoding1d(
-            cfg.decoder.hidden_dim, cfg.max_pos_enc_len))   # for input sequence in decoder
+            cfg.decoder.hidden_dim, cfg.out_max_pos_len))   # for sequence in decoder
         self.pos_enc.requires_grad = False
 
         
@@ -106,7 +106,7 @@ class ViTo(nn.Module):
         # # positional embedding of roberta is of shape [512, 768]
         
         self.task_pos_enc = nn.Parameter(positionalencoding1d(
-            cfg.encoder.hidden_dim, cfg.max_pos_enc_len))   # for input sequence in encoder
+            cfg.encoder.hidden_dim, cfg.in_max_pos_len))   # for sequence in encoder
         self.task_pos_enc.requires_grad = False
 
         self.store_path = cfg.store_path
@@ -253,7 +253,7 @@ class ViTo(nn.Module):
                         encoding_path = os.path.join(self.store_path, fname)
                         meta_dict = torch.load(encoding_path, map_location='cpu')
                         self.roberta_dict[fname] = meta_dict
-                    encoding_list.append(meta_dict['encoding'][0])
+                    encoding_list.append(meta_dict['encoding'])
                     length_list.append(meta_dict['valid_len'])
                 N = len(fnames)
                 max_length = max(length_list)
@@ -277,9 +277,11 @@ class ViTo(nn.Module):
                         continue
                     else:
                         meta_dict = {
-                            'encoding': query_encodings[i],
+                            'encoding': query_encodings[i, :valid_len[i]],
                             'valid_len': valid_len[i]
                         }
+                        self.roberta_dict.update({fname: meta_dict})
+                        torch.save(meta_dict, encoding_path)
         
         return query_encodings, mask, pos_enc
     

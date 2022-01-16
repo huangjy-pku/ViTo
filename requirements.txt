@@ -1,7 +1,9 @@
+absl-py==1.0.0
 antlr4-python3-runtime==4.8
 blis==0.7.5
 boto3==1.20.34
 botocore==1.23.34
+cachetools==4.2.4
 catalogue==2.0.6
 certifi==2021.10.8
 charset-normalizer==2.0.9
@@ -11,17 +13,22 @@ cymem==2.0.6
 Cython==0.29.26
 filelock==3.4.2
 fonttools==4.28.5
+google-auth==2.3.3
+google-auth-oauthlib==0.4.6
+grpcio==1.43.0
 h5py==3.6.0
 huggingface-hub==0.2.1
 hydra-core==1.1.1
 idna==3.3
 imageio==2.13.5
+importlib-metadata==4.10.0
 importlib-resources==5.4.0
 Jinja2==3.0.3
 jmespath==0.10.0
 joblib==1.1.0
 kiwisolver==1.3.2
 langcodes==3.3.0
+Markdown==3.3.6
 MarkupSafe==2.0.1
 matplotlib==3.5.1
 mkl-fft==1.3.1
@@ -32,6 +39,7 @@ murmurhash==1.0.6
 networkx==2.6.3
 nltk==3.6.7
 numpy==1.22.0
+oauthlib==3.1.1
 olefile @ file:///Users/ktietz/demo/mc3/conda-bld/olefile_1629805411829/work
 omegaconf==2.1.1
 opencv-python-headless==4.5.5.62
@@ -40,6 +48,9 @@ pathy==0.6.1
 Pillow==9.0.0
 preshed==3.0.6
 progressbar2==3.55.0
+protobuf==3.19.3
+pyasn1==0.4.8
+pyasn1-modules==0.2.8
 pycocotools==2.0.3
 pydantic==1.8.2
 pyparsing==3.0.6
@@ -50,6 +61,8 @@ PyWavelets==1.2.0
 PyYAML==6.0
 regex==2021.11.10
 requests==2.27.0
+requests-oauthlib==1.3.0
+rsa==4.8
 s3transfer==0.5.0
 sacremoses==0.0.46
 scikit-image==0.19.1
@@ -61,6 +74,9 @@ spacy==3.2.1
 spacy-legacy==3.0.8
 spacy-loggers==1.0.1
 srsly==2.4.2
+tensorboard==2.7.0
+tensorboard-data-server==0.6.1
+tensorboard-plugin-wit==1.8.1
 thinc==8.0.13
 tifffile==2021.11.2
 tokenizers==0.10.3
@@ -74,5 +90,6 @@ typing_extensions==4.0.1
 urllib3==1.26.7
 warmup-scheduler==0.3
 wasabi==0.9.0
+Werkzeug==2.0.2
 yacs==0.1.8
 zipp==3.7.0

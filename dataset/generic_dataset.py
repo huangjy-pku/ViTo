@@ -139,7 +139,7 @@ class GenericDataset(Dataset):
             raise NotImplementedError
 
         return img, query, targets, \
-            self.get_encoding_fname(self.dataset_name, self.subset, i)
+            self.get_encoding_fname(i)
     
     def get_images_from_tensor(self, imgs):
         """
@@ -162,8 +162,8 @@ class GenericDataset(Dataset):
         collate_fn = self.get_collate_fn()
         return DataLoader(self, collate_fn=collate_fn, **kwargs)
 
-    def get_encoding_fname(self, dataset_name, subset, i):
-        return f'{dataset_name}_{subset}_{i}.pt'
+    def get_encoding_fname(self, i):
+        return f'{self.dataset_name}_{self.subset}_{i}.pt'
 
 
 @hydra.main(config_path="../config", config_name="vito.yaml")
