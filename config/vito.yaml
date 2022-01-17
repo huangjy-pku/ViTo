@@ -92,7 +92,7 @@ training:
   frozen_epochs: 0
   frozen_batch_size: ${training.batch_size}
   num_epochs: 40
-  batch_size: 64
+  batch_size: 256
   num_workers: 30
   vis_step: 2000
   log_step: 10

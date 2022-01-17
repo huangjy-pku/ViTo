@@ -30,7 +30,8 @@ class RefexpEvaluator():
             grp = self.preds[fname]
             if 'bbox' in grp:
                 if grp['bbox'] is not None:
-                    acc = self.evaluate_bbox(grp['bbox'], targets['bbox']).reshape(-1, 10)
+                    acc = self.evaluate_bbox(grp['bbox'],
+                        targets['bbox'].detach().cpu().numpy()).reshape(-1, 10)
                 else:
                     acc = np.zeros((1, 10), dtype=bool)
                 bbox_mat = np.concatenate([bbox_mat, acc], axis=0)

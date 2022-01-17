@@ -95,8 +95,8 @@ def compute_iou(bbox1, bbox2, fmt='cxcywh', verbose=False):
     y2_in = min(y2, y2_)
 
     intersection = compute_area(bbox=[x1_in, y1_in, x2_in, y2_in], invalid=0.0)
-    area1 = compute_area(bbox1)
-    area2 = compute_area(bbox2)
+    area1 = compute_area(bbox1, invalid=0.0)
+    area2 = compute_area(bbox2, invalid=0.0)
     union = area1 + area2 - intersection
     iou = intersection / (union + 1e-6)
 

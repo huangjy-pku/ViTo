@@ -35,9 +35,9 @@ def dense_process(mask):
 def make_coco_transforms(image_set, cautious):
     normalize = T.Compose([T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
-    scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+    scales = [224, 256]
 
-    max_size = 1333
+    max_size = 384
     if image_set == "train":
         horizontal = [] if cautious else [T.RandomHorizontalFlip()]
         return T.Compose(
@@ -47,8 +47,8 @@ def make_coco_transforms(image_set, cautious):
                     T.RandomResize(scales, max_size=max_size),
                     T.Compose(
                         [
-                            T.RandomResize([400, 500, 600]),
-                            T.RandomSizeCrop(384, max_size, respect_boxes=cautious),
+                            T.RandomResize([256, 288, 320]),
+                            T.RandomSizeCrop(224, max_size, respect_boxes=cautious),
                             T.RandomResize(scales, max_size=max_size),
                         ]
                     ),
@@ -60,7 +60,7 @@ def make_coco_transforms(image_set, cautious):
     if image_set == "val":
         return T.Compose(
             [
-                T.RandomResize([800], max_size=max_size),
+                T.RandomResize([256], max_size=max_size),
                 normalize,
             ]
         )
