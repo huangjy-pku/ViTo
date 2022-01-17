@@ -47,8 +47,8 @@ def refexp_metrics(model, dataloader, cfg):
             task = targets[b]['task']
 
             if task == 'bbox':
-                pred_bbox = seq2bbox(pred_seqs[b], num_bins=model.num_bins)
-                grp.create_dataset('bbox', data=pred_bbox)
+                pred_bbox = seq2bbox(pred_seqs[b], num_bins=cfg.model.num_bins)
+                grp.create_dataset('bbox', dtype='f', data=pred_bbox)
             elif task == 'dense':
                 pred_mask = seq2mask(pred_seqs[b])
                 grp.create_dataset('mask', data=pred_mask)

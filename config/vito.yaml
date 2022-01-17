@@ -38,7 +38,7 @@ model:
   vocab: ${output_dir}/vocab.json
   vocab_embed: ${output_dir}/vocab_embed.npy
   in_max_pos_len: 100
-  out_max_pos_len: 300
+  out_max_pos_len: 10
   answer_head: null
   roberta_dim: 768
   store_path: ${output_dir}/encoding_store

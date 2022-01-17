@@ -236,9 +236,10 @@ class ViTo(nn.Module):
         return True
 
     def get_task_encoding(self, queries, fnames=None):
+        device = self.roberta.model.device
         if fnames is None:
             with torch.no_grad():
-                query_encodings, token_inputs = self.roberta(queries)
+                query_encodings, token_inputs = self.roberta(queries, device)
             mask = ~token_inputs['attention_mask'].to(torch.bool)
             pos_enc = self.task_pos_enc[:mask.shape[1]]
         else:
@@ -266,7 +267,7 @@ class ViTo(nn.Module):
                 pos_enc = self.task_pos_enc[:max_length]   # [max_length, hidden_dim]
             else:
                 with torch.no_grad():
-                    query_encodings, token_inputs = self.roberta(queries)
+                    query_encodings, token_inputs = self.roberta(queries, device)
                 valid_len = torch.count_nonzero(token_inputs['attention_mask'], dim=1)
                 mask = ~token_inputs['attention_mask'].to(torch.bool)
                 pos_enc = self.task_pos_enc[:mask.shape[1]]
@@ -288,8 +289,11 @@ class ViTo(nn.Module):
     def decode(self, answer_token_ids, memory):
         if answer_token_ids is None:
             # inference
-            cls_token_id = torch.LongTensor([self.word_to_idx['__cls__']]).cuda()
-            target_token_ids = cls_token_id.view(1, 1).repeat(memory.shape[0], 1)
+            B = memory.shape[0]
+            cls_token_id = torch.LongTensor([self.word_to_idx['__cls__']]).cuda(self.device)
+            target_token_ids = cls_token_id.view(1, 1).repeat(B, 1)
+            terminate = torch.zeros(B).to(torch.bool).cuda(self.device)
+            stop_token_id = torch.LongTensor([self.word_to_idx['__stop__']]).cuda(self.device)
             for t in range(self.cfg.decoder.max_answer_len-1):
                 """
                 auto-regressive has to get the exact word before recurrent prediction
@@ -302,6 +306,12 @@ class ViTo(nn.Module):
                 # current token prediction
                 top_ids = torch.topk(answer_logits, k=1, dim=-1).indices
                 target_token_ids = torch.cat((target_token_ids, top_ids), -1)
+                
+                # early stop
+                terminate[top_ids.squeeze()==stop_token_id] = True
+                if torch.all(terminate):
+                    break
+            
             # now we have token_ids as output, which are supposed to be converted back to logits
             target = self.answer_input_embeddings(target_token_ids, self.joint_embed)
             # [batch_size, num_l_tokens, hidden_dim]
@@ -317,10 +327,11 @@ class ViTo(nn.Module):
         
         return output_logits
 
-    def encode_answers(self, targets):
+    def encode_answers(self, targets, device=None):
         """
         transfer ground truth answers from words(list) to token_ids
         """
+        self.device = device
         B = len(targets)
         answers = [''] * B
         for i, t in enumerate(targets):
@@ -349,7 +360,7 @@ class ViTo(nn.Module):
 
             padded_token_ids[i] = token_ids[:self.cfg.decoder.max_answer_len]
 
-        padded_token_ids = torch.LongTensor(padded_token_ids).cuda()
+        padded_token_ids = torch.LongTensor(padded_token_ids).cuda(device)
 
         return padded_inputs, padded_token_ids
 
@@ -366,7 +377,7 @@ class ViTo(nn.Module):
     @property
     def cls_token(self):
         return self.answer_input_embedings(
-            torch.LongTensor([self.word_to_idx['__cls__']]).cuda())[0]
+            torch.LongTensor([self.word_to_idx['__cls__']]).cuda(self.device))[0]
 
     def decode_text(self, target, memory):
         Tt = target.shape[1]
@@ -374,7 +385,7 @@ class ViTo(nn.Module):
             target = target + self.pos_enc[:, :Tt]
         memory = memory.permute(1, 0, 2)   # [num_tokens, batch_size, hidden_dim]
         target = target.permute(1, 0, 2)   # [num_l_tokens, batch_size, hidden_dim]
-        tgt_mask = torch.zeros((Tt, Tt)).bool().cuda()
+        tgt_mask = torch.zeros((Tt, Tt)).bool().cuda(self.device)
         for t in range(Tt):
             for j in range(t+1, Tt):
                 tgt_mask[t, j] = True   # True indicates not attending

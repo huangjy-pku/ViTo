@@ -59,7 +59,7 @@ def visualize(model, dataloader, cfg, step, subset):
                 if not isinstance(v, str):
                     t[k] = v.cuda(device)
         
-        answer_tokens, answer_token_ids = model.encode_answers(targets)
+        answer_tokens, answer_token_ids = model.encode_answers(targets, device)
         outputs_logits = model(imgs, queries, answer_token_ids=None, fnames=fnames)
 
         dataset_name = list(dataloader.dataset.datasets.keys())[0]
@@ -312,7 +312,7 @@ def train_worker(gpu, cfg):
             
             model.train()
 
-            answer_tokens, answer_token_ids = model.encode_answers(targets)
+            answer_tokens, answer_token_ids = model.encode_answers(targets, device)
             for i, t in enumerate(targets):
                 t['answer_token_ids'] = answer_token_ids[i, 1:]
             

@@ -7,13 +7,17 @@ class RoBERTa(nn.Module):
         self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base') 
         self.model = RobertaModel.from_pretrained('roberta-base')
 
-    def forward(self, sentences):
+    def forward(self, sentences, device=None):
         token_inputs = self.tokenizer(
             sentences,
             padding=True,
             return_tensors='pt')
         
-        token_inputs = {k: v.cuda() for k, v in token_inputs.items()}
+        if device is None:
+            token_inputs = {k: v.cuda() for k, v in token_inputs.items()}
+        else:
+            token_inputs = {k: v.cuda(device) for k, v in token_inputs.items()}
+        
         outputs = self.model(**token_inputs)
         return outputs[0], token_inputs
 

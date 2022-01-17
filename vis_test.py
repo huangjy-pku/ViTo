@@ -45,7 +45,7 @@ def visualize(model, dataloader, cfg, step, subset):
                 if not isinstance(v, str):
                     t[k] = v.cuda(device)
         
-        answer_tokens, answer_token_ids = model.encode_answers(targets)
+        answer_tokens, answer_token_ids = model.encode_answers(targets, device)
         outputs_logits = model(imgs, queries, answer_token_ids=None, fnames=fnames)
 
         dataset_name = list(dataloader.dataset.datasets.keys())[0]
