@@ -29,7 +29,7 @@ class RefexpEvaluator():
 
             grp = self.preds[fname]
             if 'bbox' in grp:
-                if grp['bbox'] is not None:
+                if grp['bbox'].shape is not None:
                     acc = self.evaluate_bbox(grp['bbox'],
                         targets['bbox'].detach().cpu().numpy()).reshape(-1, 10)
                 else:
