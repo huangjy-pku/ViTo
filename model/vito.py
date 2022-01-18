@@ -54,7 +54,7 @@ class AnswerInputEmbedding(nn.Module):
         joint_embed: [num_vocab, roberta_dim]
         """
         bs, Tl = token_ids.shape
-        embed = torch.zeros(bs, Tl, joint_embed.shape[1]).to(torch.float).to('cuda')
+        embed = torch.zeros(bs, Tl, joint_embed.shape[1]).to(torch.float).to(token_ids.device)
         embed[:, :] = joint_embed[token_ids[:, :]]
         return self.transform(embed)
 
@@ -100,7 +100,7 @@ class ViTo(nn.Module):
         self.pos_enc = nn.Parameter(positionalencoding1d(
             cfg.decoder.hidden_dim, cfg.out_max_pos_len))   # for sequence in decoder
         self.pos_enc.requires_grad = False
-
+        self.delta = 0
         
         # self.task_pos_enc = torch.load(os.path.join(self.store_path, 'positional_embedding.pt'))
         # # positional embedding of roberta is of shape [512, 768]
@@ -110,7 +110,7 @@ class ViTo(nn.Module):
         self.task_pos_enc.requires_grad = False
 
         self.store_path = cfg.store_path
-        self.roberta_dict = {}
+        # self.roberta_dict = {}
 
     def vocab_expansion(self, cfg):
         if 'bbox' in cfg.task:
@@ -248,18 +248,18 @@ class ViTo(nn.Module):
                 encoding_list = []
                 length_list = []
                 for fname in fnames:
-                    if fname in self.roberta_dict:
-                        meta_dict = self.roberta_dict[fname]
-                    else:
-                        encoding_path = os.path.join(self.store_path, fname)
-                        meta_dict = torch.load(encoding_path, map_location='cpu')
-                        self.roberta_dict[fname] = meta_dict
+                    # if fname in self.roberta_dict:
+                    #     meta_dict = self.roberta_dict[fname]
+                    # else:
+                    encoding_path = os.path.join(self.store_path, fname)
+                    meta_dict = torch.load(encoding_path, map_location='cpu')
+                        # self.roberta_dict.update({fname: meta_dict})
                     encoding_list.append(meta_dict['encoding'])
                     length_list.append(meta_dict['valid_len'])
                 N = len(fnames)
                 max_length = max(length_list)
-                query_encodings = torch.zeros(N, max_length, self.cfg.roberta_dim, device='cuda')
-                mask = torch.ones(N, max_length, device='cuda').to(torch.bool)
+                query_encodings = torch.zeros(N, max_length, self.cfg.roberta_dim, device=self.device)
+                mask = torch.ones(N, max_length, device=self.device).to(torch.bool)
                 for i, encoding in enumerate(encoding_list):
                     query_encodings[i, :length_list[i]] = encoding
                     mask[i, :length_list[i]] = False
@@ -281,7 +281,7 @@ class ViTo(nn.Module):
                             'encoding': query_encodings[i, :valid_len[i]],
                             'valid_len': valid_len[i]
                         }
-                        self.roberta_dict.update({fname: meta_dict})
+                        # self.roberta_dict.update({fname: meta_dict})
                         torch.save(meta_dict, encoding_path)
         
         return query_encodings, mask, pos_enc

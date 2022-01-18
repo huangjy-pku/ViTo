@@ -398,14 +398,12 @@ def train_worker(gpu, cfg):
                         ap50, mAP = refexp_metrics(model, eval_dataloader, cfg)
                     if eval_subset == 'val':
                         model_selection_metric = model_selection_metric + ap50 + mAP
+                    ap50 = round(ap50, 4)
+                    mAP = round(mAP, 4)
                     print(f'Dataset: {dataset_name} | Subset: {eval_subset} | Epoch: {epoch} | AP@0.5: {ap50} | mAP: {mAP}')
                     
-                    if 'bbox' in dataset_name:
-                        writer.add_scalar(f'bbox/{eval_subset}', ap50, step)
-                    elif 'dense' in dataset_name:
-                        writer.add_scalar(f'dense/{eval_subset}', map, step)
-                    else:
-                        print(f'Eval not implemented for {dataset_name}')
+                    writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.5', ap50, step)
+                    writer.add_scalar(f'{eval_subset}/{dataset_name}/mAP', mAP, step)
 
             if model_selection_metric > best_metric:
                 print('Saving checkpoint ...')
