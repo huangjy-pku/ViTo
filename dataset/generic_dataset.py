@@ -57,7 +57,7 @@ def make_coco_transforms(image_set, cautious):
             ]
         )
 
-    if image_set == "val":
+    elif image_set == "val" or 'test' in image_set:
         return T.Compose(
             [
                 T.RandomResize([256], max_size=max_size),

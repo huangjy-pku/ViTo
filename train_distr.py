@@ -178,6 +178,7 @@ def train_worker(gpu, cfg):
         model.token_ids_to_words = token_ids_to_words
         model.init_params = init_params
         model.vocab = vocab
+        model.device = cfg.gpu
 
         # create sampler for dataloader
         sampler = {'val': None}

@@ -305,13 +305,13 @@ class ViTo(nn.Module):
                 answer_logits = answer_logits[:, -1]
                 # current token prediction
                 top_ids = torch.topk(answer_logits, k=1, dim=-1).indices
-                target_token_ids = torch.cat((target_token_ids, top_ids), -1)
-                
-                # early stop
+
                 terminate[top_ids.squeeze()==stop_token_id] = True
+                # early stop
                 if torch.all(terminate):
                     break
-            
+                else:
+                    target_token_ids = torch.cat((target_token_ids, top_ids), -1)      
             # now we have token_ids as output, which are supposed to be converted back to logits
             target = self.answer_input_embeddings(target_token_ids, self.joint_embed)
             # [batch_size, num_l_tokens, hidden_dim]
@@ -319,11 +319,10 @@ class ViTo(nn.Module):
             output_logits = self.decode_text(target, memory)
         else:
             # train
-            target = self.answer_input_embeddings(answer_token_ids, self.joint_embed)
+            target = self.answer_input_embeddings(answer_token_ids[:, :-1], self.joint_embed)
             # [batch_size, num_l_tokens, hidden_dim]
-            
-            output_logits = self.decode_text(target, memory)[:, :-1]
             # ignore output from __stop__ token
+            output_logits = self.decode_text(target, memory)
         
         return output_logits
 
