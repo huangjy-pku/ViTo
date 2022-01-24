@@ -23,6 +23,7 @@ from dataset.multitask_dataset import MultitaskDataset
 from utils.bbox_utils import seq2bbox, seq2mask, vis_bbox, vis_mask
 import utils.io as io
 from utils.html_writer import HtmlWriter
+from taming.vqgan import VQModel
 
 
 def grad_norm(params):
@@ -40,6 +41,11 @@ def visualize(model, dataloader, cfg, step, subset):
         cfg.exp_dir,
         f'visualizations/{subset}_'+str(step).zfill(6))
     io.mkdir_if_not_exists(vis_dir, recursive=True)
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
 
     html_writer = HtmlWriter(os.path.join(vis_dir, 'index.html'))
     html_writer.add_element({
@@ -94,10 +100,10 @@ def visualize(model, dataloader, cfg, step, subset):
                 if bbox is not None:
                     vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
-                gt = t['mask'].detach().cpu().numpy()
+                gt = t['mask'].detach().squeeze().cpu().numpy().astype(bool)
                 vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
-                mask = seq2mask(pred_seqs[i])
+                mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
                 vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
 
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
@@ -133,6 +139,7 @@ def get_lrs(optimizer):
     
     return lrs
 
+
 def train_worker(gpu, cfg):
     cfg.gpu = gpu
     if cfg.gpu is not None:
@@ -142,8 +149,8 @@ def train_worker(gpu, cfg):
         print(OmegaConf.to_yaml(cfg))
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, cfg.vqgan),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, cfg.vqgan)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))
@@ -396,15 +403,32 @@ def train_worker(gpu, cfg):
                         collate_fn=detr_collate_fn)
                     
                     with torch.no_grad():
-                        ap50, mAP = refexp_metrics(model, eval_dataloader, cfg)
-                    if eval_subset == 'val':
-                        model_selection_metric = model_selection_metric + ap50 + mAP
-                    ap50 = round(ap50, 4)
-                    mAP = round(mAP, 4)
-                    print(f'Dataset: {dataset_name} | Subset: {eval_subset} | Epoch: {epoch} | AP@0.5: {ap50} | mAP: {mAP}')
+                        metrics = refexp_metrics(model, eval_dataloader, cfg)
                     
-                    writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.5', ap50, step)
-                    writer.add_scalar(f'{eval_subset}/{dataset_name}/mAP', mAP, step)
+                    eval_str = f'Dataset: {dataset_name} | Subset: {eval_subset} | Epoch: {epoch} | '
+                    bbox_AP50 = bbox_mAP = mask_mIoU = mask_AP = 0
+                    if metrics['bbox_AP@0.5'] is not None:
+                        bbox_AP50 = round(metrics['bbox_AP@0.5'], 4)
+                        bbox_mAP = round(metrics['bbox_mAP'], 4)
+                        eval_str += f'bbox AP@0.5: {bbox_AP50} | bbox mAP: {bbox_mAP}'
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.5', bbox_AP50, step)
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/mAP', bbox_mAP, step)
+                    if metrics['mask_mIoU'] is not None:
+                        mask_mIoU = round(metrics['mask_mIoU'], 4)
+                        mask_AP = metrics['mask_AP']
+                        mask_AP = [round(x, 4) for x in mask_AP]
+                        eval_str += f'mask mIoU: {mask_mIoU} | mask AP: {mask_AP}'
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/mIoU', mask_mIoU, step)
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.5', mask_AP[0], step)
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.7', mask_AP[1], step)
+                        writer.add_scalar(f'{eval_subset}/{dataset_name}/AP@0.9', mask_AP[2], step)
+                    
+                    print(eval_str)
+
+                    if eval_subset == 'val':
+                        model_selection_metric = model_selection_metric + \
+                                                 bbox_AP50 + bbox_mAP + mask_mIoU + \
+                                                 mask_AP[0] + mask_AP[1] + mask_AP[2]
 
             if model_selection_metric > best_metric:
                 print('Saving checkpoint ...')

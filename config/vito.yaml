@@ -25,9 +25,6 @@ hydra:
 model:
   pretr_weights: null
   num_bins: 200
-  codebook_size: 1024
-  downsample_factor: 16
-  token_channels: 256
   num_feature_levels: 1
   extra_conv: False
   backbone: resnet50
@@ -63,6 +60,24 @@ model:
     max_answer_len: ${model.out_max_pos_len}
   loss: ${loss}
 
+vqgan:
+  embed_dim: 768
+  n_embed: 1024
+  downsample_factor: 32
+  device: {gpu}
+  ckpt: ${output_dir}/vqgan.ckpt
+  ddconfig:
+    double_z: False
+    z_channels: 256
+    resolution: 256
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [1,1,2,2,4]   # num_down = len(ch_mult)-1
+    num_res_blocks: 2
+    attn_resolutions: [16]
+    dropout: 0.0
+
 loss:
   pad_idx: 7969
 
@@ -92,7 +107,7 @@ training:
   frozen_epochs: 0
   frozen_batch_size: ${training.batch_size}
   num_epochs: 60
-  batch_size: 256
+  batch_size: 64
   num_workers: 30
   vis_step: 2000
   log_step: 10

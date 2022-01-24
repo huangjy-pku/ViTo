@@ -1,17 +1,14 @@
-from lib2to3.pgen2 import token
 import math
 from nltk.tokenize import word_tokenize
 import torch
 import torch.nn as nn
 import os
 
-from utils.bbox_utils import seq2bbox, seq2mask
-
 from .backbone import build_backbone
 from .roberta import RoBERTa
 from .answer_head import build_answer_head
 from .loss import SequenceModelingLoss
-from utils.misc import NestedTensor, nested_tensor_from_tensor_list
+from utils.misc import nested_tensor_from_tensor_list
 from .deformable_encoder import build_deforamble_encoder
 
 
@@ -148,19 +145,23 @@ class ViTo(nn.Module):
         return nn.ModuleList(joiner_list)
 
     def load_pretr_weights(self):
+        """
+        ViTo: [backbone, roberta.model, l2v_proj
+                encoder.encoder, decoder], with common prefix module. after distributed
+        MDETR: [backbone, transformer.text_encoder, transformer.resizer,
+                transformer.encoder, transformer.decoder]
+        """
         loaded_model = torch.load(self.cfg.pretr_weights)['model']
         curr_model = self.state_dict()
         for lk in loaded_model.keys():
-            # detr
-            detr_lk = 'detr.' + lk
-            if detr_lk in curr_model:
-                # print(detr_lk)
-                if curr_model[detr_lk].size() == loaded_model[lk].size():
-                    self.init_params.append(detr_lk)
-                    curr_model[detr_lk] = loaded_model[lk]
-                    # print(f'    {detr_lk} loaded')
+            # cnn_backbone
+            if 'backbone' in lk:
+                if curr_model[lk].size() == loaded_model[lk].size():
+                    self.init_params.append(lk)
+                    curr_model[lk] = loaded_model[lk]
+                    print(f'{lk} loaded')
                 else:
-                    print(f'    {lk} size does not match')
+                    print(f'{lk} size does not match')
             # roberta
             elif 'text_encoder' in lk:
                 share_name = '.'.join(lk.split('.')[2:])
@@ -169,9 +170,9 @@ class ViTo(nn.Module):
                     if curr_model[roberta_lk].size() == loaded_model[lk].size():
                         self.init_params.append(roberta_lk)
                         curr_model[roberta_lk] = loaded_model[lk]
-                        # print(f'    {roberta_lk} loaded')
+                        print(f'{roberta_lk} loaded')
                     else:
-                        print(f'    {lk} size does not match')
+                        print(f'{roberta_lk} size does not match')
             # proj l to v
             elif 'resizer.fc' in lk:
                 if 'weight' in lk:
@@ -182,11 +183,11 @@ class ViTo(nn.Module):
                     raise Exception('unknown parameter')
                 if l2v_lk in curr_model:
                     if curr_model[l2v_lk].size() == loaded_model[lk].size():
-                            self.init_params.append(l2v_lk)
-                            curr_model[l2v_lk] = loaded_model[lk]
-                            # print(f'    {l2v_lk} loaded')
+                        self.init_params.append(l2v_lk)
+                        curr_model[l2v_lk] = loaded_model[lk]
+                        print(f'{l2v_lk} loaded')
                     else:
-                        print(f'    {lk} size does not match')
+                        print(f'{l2v_lk} size does not match')
 
         self.load_state_dict(curr_model)
 

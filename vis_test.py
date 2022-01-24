@@ -17,7 +17,8 @@ from dataset.multitask_dataset import MultitaskDataset
 from utils.bbox_utils import seq2bbox, seq2mask, vis_bbox, vis_mask
 import utils.io as io
 from utils.html_writer import HtmlWriter
-    
+from taming.vqgan import VQModel
+
 
 def visualize(model, dataloader, cfg, step, subset):
     device = f'cuda:{cfg.gpu}'
@@ -25,7 +26,11 @@ def visualize(model, dataloader, cfg, step, subset):
         cfg.exp_dir,
         f'visualizations/{subset}_'+str(step).zfill(6))
     io.mkdir_if_not_exists(vis_dir, recursive=True)
-    io.mkdir_if_not_exists(cfg.ckpt_dir, recursive=True)
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
 
     html_writer = HtmlWriter(os.path.join(vis_dir, 'index.html'))
     html_writer.add_element({
@@ -76,14 +81,14 @@ def visualize(model, dataloader, cfg, step, subset):
                 gt = t['bbox'].detach().cpu().numpy()
                 vis_bbox(gt, vis_img, color=(0, 255, 0), modify=True, fmt='xyxy')
 
-                bbox = seq2bbox(pred_seqs[i], num_bins=model.num_bins)
+                bbox = seq2bbox(pred_seqs[i], num_bins=cfg.model.num_bins)
                 if bbox is not None:
                     vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
-                gt = t['mask'].detach().cpu().numpy()
+                gt = t['mask'].detach().squeeze().cpu().numpy().astype(bool)
                 vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
-                mask = seq2mask(pred_seqs[i])
+                mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
                 vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
 
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
@@ -120,8 +125,8 @@ def main(cfg):
     print(OmegaConf.to_yaml(cfg))
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, cfg.vqgan),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, cfg.vqgan)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))

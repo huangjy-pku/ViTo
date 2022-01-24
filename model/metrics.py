@@ -7,10 +7,17 @@ import torch
 import utils.io as io
 from utils.bbox_utils import seq2bbox, seq2mask
 from .evaluator import RefexpEvaluator
+from taming.vqgan import VQModel
 
 
 def refexp_metrics(model, dataloader, cfg):
     device = f'cuda:{cfg.gpu}'
+
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
 
     model.eval()
     
@@ -50,8 +57,8 @@ def refexp_metrics(model, dataloader, cfg):
                 pred_bbox = seq2bbox(pred_seqs[b], num_bins=cfg.model.num_bins)
                 grp.create_dataset('bbox', dtype='f', data=pred_bbox)
             elif task == 'dense':
-                pred_mask = seq2mask(pred_seqs[b])
-                grp.create_dataset('mask', data=pred_mask)
+                pred_mask = seq2mask(pred_seqs[b], vqgan, down_factor=cfg.vqgan.downsample_factor)
+                grp.create_dataset('mask', dtype='f', data=pred_mask)
                 
             total += 1
         
@@ -65,4 +72,4 @@ def refexp_metrics(model, dataloader, cfg):
     metrics = refexp_evaluator.evaluate()
     pred_h5py.close()
     os.remove(pred_h5py_path)
-    return metrics['AP50'], metrics['mAP']
+    return metrics

@@ -7,7 +7,7 @@ from .generic_dataset import GenericDataset
 
 
 class MultitaskDataset(Dataset):
-    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200):
+    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan_cfg=None):
         super().__init__()
         self.datasets = {}
         self.sample_l = []   # lower index
@@ -16,7 +16,7 @@ class MultitaskDataset(Dataset):
             for task in tasks:
                 dataset_name = f'{dataset}_{task}'
                 self.datasets[dataset_name] = GenericDataset(
-                    dataset_name, info, subset, task, num_bins=num_bins
+                    dataset_name, info, subset, task, num_bins=num_bins, vqgan_cfg=vqgan_cfg
                 )
                 L = len(self.datasets[dataset_name])
                 if len(self.sample_l) == 0:

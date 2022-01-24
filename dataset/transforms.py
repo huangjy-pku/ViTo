@@ -46,7 +46,7 @@ def crop(image, target, region):
         # this is compatible with previous implementation
         if "boxes" in target:
             cropped_boxes = target['boxes'].reshape(-1, 2, 2)
-            keep = torch.all(cropped_boxes[:, 1, :] >= cropped_boxes[:, 0, :], dim=1)
+            keep = torch.all(cropped_boxes[:, 1, :] > cropped_boxes[:, 0, :], dim=1)
         else:
             keep = target['masks'].flatten(1).any(1)
 
@@ -174,7 +174,6 @@ class RandomSizeCrop(object):
             result_img, result_target = crop(img, target, region)
             if not self.respect_boxes or len(result_target["boxes"]) == init_boxes or i == max_patience - 1:
                 return result_img, result_target
-        return result_img, result_target
 
 
 class CenterCrop(object):

@@ -28,7 +28,8 @@ def run_eval(cfg):
                     dataset_name = f'{dataset}_{task}'
                     testset.update({
                         f'{dataset_name}_{subset}': \
-                            GenericDataset(dataset_name, info, subset, task, cfg.model.num_bins)})
+                            GenericDataset(dataset_name, info, subset, task,
+                            cfg.model.num_bins, cfg.vqgan)})
 
     dataloaders = {}
     for dataset_name, dataset in testset.items():
@@ -63,11 +64,21 @@ def run_eval(cfg):
         print(f'Evaluating on {dataset_name}')
         
         with torch.no_grad():
-            ap50, mAP = refexp_metrics(model, dataloader, cfg)
+            metrics = refexp_metrics(model, dataloader, cfg)
 
-        ap50 = round(ap50, 4)
-        mAP = round(mAP, 4)
-        print(f'Dataset: {dataset_name} | AP@0.5: {ap50} | mAP: {mAP}')
+        eval_str = f'Exp: {cfg.exp_name} | Dataset: {dataset_name} | '
+
+        if metrics['bbox_AP@0.5'] is not None:
+            bbox_AP50 = round(metrics['bbox_AP@0.5'], 4)
+            bbox_mAP = round(metrics['bbox_mAP'], 4)
+            eval_str += f'bbox AP@0.5: {bbox_AP50} | bbox mAP: {bbox_mAP}'
+        if metrics['mask_mIoU'] is not None:
+            mask_mIoU = round(metrics['mask_mIoU'], 4)
+            mask_AP = metrics['mask_AP']
+            mask_AP = [round(x, 4) for x in mask_AP]
+            eval_str += f'mask mIoU: {mask_mIoU} | mask AP: {mask_AP}'
+        
+        print(eval_str)
 
 
 @hydra.main(config_path='./config', config_name='vito')

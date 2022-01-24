@@ -1,5 +1,6 @@
 import numpy as np
 import skimage.draw as skdraw
+import torch
 
 
 def seq2bbox(pred_seq, num_bins=200):
@@ -23,8 +24,29 @@ def seq2bbox(pred_seq, num_bins=200):
     return np.array(bbox)
 
 
-def seq2mask(pred_seq):
-    pass
+def seq2mask(pred_seq, vqgan, down_factor=32):
+    side = 256 / down_factor
+    code_len = side ** 2
+    
+    for i, token in enumerate(pred_seq):
+        if token == '__dense_begin__':
+            break
+    if i > len(pred_seq)-code_len-2:
+        return None
+    code = []
+    for token in pred_seq[i+1: i+1+code_len]:
+        if 'code_' in token:
+            code.append(int(token[5:]))
+        else:
+            return None
+    with torch.no_grad():
+        pred_mask = vqgan.decode_code(torch.LongTensor(code), shape=(1, side, side, -1))
+    # vqgan reconstruction shape at [1, 3, 256, 256], value in [-1, 1]
+    pred_mask = pred_mask.squeeze().detach().cpu().numpy()
+    pred_mask = (pred_mask+1) / 2
+    # ITU-R 601-2 luma transform: L = R * 0.299 + G * 0.587 + B * 0.114
+    pred_mask = np.sum([[[0.299]], [[0.587]], [[0.114]]]*pred_mask, axis=0)
+    return pred_mask
 
 
 def vis_bbox(bbox, img, color=(255, 0, 0), modify=False, fmt='ncxcywh'):
@@ -70,10 +92,10 @@ def vis_mask(mask, img, color=(255, 0, 0), modify=False, alpha=0.2):
         img_ = img
     else:
         img_ = np.copy(img)
-    
-    # rr, cc = skdraw.polygon(r, c, img.shape[:2])   # area
-    rr, cc = (mask>0.5).nonzero()
-    skdraw.set_color(img_, (rr, cc), color, alpha=alpha)
+    if mask.dtype != bool:
+        mask = mask >= 0.5
+    rr, cc = mask.nonzero()
+    skdraw.set_color(img_, (rr, cc), color, alpha=alpha)   # area
     return img_
 
 
@@ -132,3 +154,13 @@ def cxcywh_to_xyxy(bbox,im_h=1,im_w=1):
     x2 = cx + 0.5*w
     y2 = cy + 0.5*h
     return (x1,y1,x2,y2)
+
+
+def compute_iou_mask(pred_mask, gt_mask):
+    """
+    masks are both bool type
+    """
+    inter = np.sum(pred_mask*gt_mask)
+    union = np.sum(pred_mask+gt_mask)
+    iou = inter / (union+1e-6)
+    return iou
