@@ -6,7 +6,6 @@ import hydra
 import torch
 import torch.nn as nn
 import numpy as np
-import skimage.io as skio
 from utils.misc import collate_fn as detr_collate_fn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -14,22 +13,22 @@ from tqdm import tqdm
 from model.vito import ViTo
 from model.metrics import refexp_metrics
 from dataset.generic_dataset import GenericDataset
-from utils.bbox_utils import seq2bbox, seq2mask, vis_bbox, vis_mask
+from utils.bbox_utils import seq2bbox, seq2mask
 import utils.io as io
+from taming.vqgan import VQModel
 
 
 def run_eval(cfg):
     testset = {}
     for dataset, info in cfg.dataset.items():
         for json_name in os.listdir(info.anno_dir):
-            if 'test' in json_name:
+            if 'val' in json_name or 'test' in json_name:
                 for task in cfg.task:
                     subset = json_name.split('.')[0]
                     dataset_name = f'{dataset}_{task}'
                     testset.update({
                         f'{dataset_name}_{subset}': \
-                            GenericDataset(dataset_name, info, subset, task,
-                            cfg.model.num_bins, cfg.vqgan)})
+                            GenericDataset(dataset_name, info, subset, task, cfg.num_bins, vqgan)})
 
     dataloaders = {}
     for dataset_name, dataset in testset.items():
@@ -64,7 +63,7 @@ def run_eval(cfg):
         print(f'Evaluating on {dataset_name}')
         
         with torch.no_grad():
-            metrics = refexp_metrics(model, dataloader, cfg)
+            metrics = refexp_metrics(model, dataloader, cfg, vqgan)
 
         eval_str = f'Exp: {cfg.exp_name} | Dataset: {dataset_name} | '
 
@@ -83,6 +82,14 @@ def run_eval(cfg):
 
 @hydra.main(config_path='./config', config_name='vito')
 def main(cfg):
+    global vqgan
+    vqgan = None
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
+    
     run_eval(cfg)
 
 

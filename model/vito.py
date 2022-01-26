@@ -61,8 +61,6 @@ class ViTo(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-        self.num_bins = cfg.num_bins
-
         self.init_params = []
 
         self.roberta = RoBERTa()
@@ -82,10 +80,10 @@ class ViTo(nn.Module):
             cfg.roberta_dim)
         self.answer_head = build_answer_head(cfg, answer_out_transform)
 
-        self.vocab_expansion(cfg)
-
-        self.vocab = self.answer_head.vocab
-        self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
+        if 'dense' in cfg.task:
+            self.vocab_expansion(cfg, cfg.vqgan_embed)
+        else:
+            self.vocab_expansion(cfg)
 
         answer_input_transform = nn.Linear(
             cfg.roberta_dim,
@@ -97,7 +95,6 @@ class ViTo(nn.Module):
         self.pos_enc = nn.Parameter(positionalencoding1d(
             cfg.decoder.hidden_dim, cfg.out_max_pos_len))   # for sequence in decoder
         self.pos_enc.requires_grad = False
-        self.delta = 0
         
         # self.task_pos_enc = torch.load(os.path.join(self.store_path, 'positional_embedding.pt'))
         # # positional embedding of roberta is of shape [512, 768]
@@ -109,26 +106,40 @@ class ViTo(nn.Module):
         self.store_path = cfg.store_path
         # self.roberta_dict = {}
 
-    def vocab_expansion(self, cfg):
+    def vocab_expansion(self, cfg, vqgan_embed_path=None):
+        init_embed = 0
         if 'bbox' in cfg.task:
             """
             __bbox_begin__, __bbox_end__, num_bins x pos_token
             """
             num_bins = cfg.num_bins
-            num_expansion = num_bins + 2
+            init_embed = init_embed + num_bins + 2
             self.answer_head.vocab.extend(['__bbox_begin__', '__bbox_end__'])
             self.answer_head.vocab.extend(['pos_'+str(i) for i in range(num_bins)])
-        elif 'dense' in cfg.task:
-            pass   # to be implemented
-        else:
-            raise NotImplementedError
+        if 'dense' in cfg.task:
+            init_embed += 2   # codebook inherits vqgan
+            self.answer_head.vocab.extend(['__dense_begin__', '__dense_end__'])
+            self.answer_head.vocab.extend(['code_'+str(i) for i in range(cfg.codebook_size)])
+            assert vqgan_embed_path is not None, "dense prediction requires vqgan embedding"
+            if os.path.exists(vqgan_embed_path):
+                self.code_embed = torch.load(vqgan_embed_path)
+            else:
+                self.code_embed = 0.1 * torch.randn([cfg.codebook_size, cfg.roberta_dim])
+            self.code_embed = nn.Parameter(self.code_embed, requires_grad=False)
 
         if cfg.answer_head == 'linear':
             # update classifier
             self.answer_head.classifier = nn.Linear(cfg.decoder.hidden_dim, len(self.answer_head.vocab))
         
-        self.repre_embed = 0.1 * torch.randn([num_expansion, cfg.roberta_dim])
+        self.repre_embed = 0.1 * torch.randn([init_embed, cfg.roberta_dim])
         self.repre_embed = nn.Parameter(self.repre_embed, requires_grad=True)
+        if 'dense' in cfg.task:
+            self.special_embed = torch.cat([self.repre_embed, self.code_embed], dim=0)
+        else:
+            self.special_embed = self.repre_embed
+        
+        self.vocab = self.answer_head.vocab
+        self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
 
     def build_joiner(self, cfg):
         joiner_list = []
@@ -215,7 +226,8 @@ class ViTo(nn.Module):
         memory = self.encoder(srcs, masks, pos, task_encoding, task_mask, task_pos_enc)
         # [batch_size, num_v_tokens+num_l_tokens, hidden_dim]
 
-        self.joint_embed = torch.cat([self.answer_head.fixed_embed, self.repre_embed], dim=0)
+        self.joint_embed = torch.cat(
+            [self.answer_head.fixed_embed, self.special_embed.to(self.device)], dim=0)
         # update joint_embed per forwarding
 
         output_logits = self.decode(answer_token_ids, memory)
@@ -307,7 +319,7 @@ class ViTo(nn.Module):
                 # current token prediction
                 top_ids = torch.topk(answer_logits, k=1, dim=-1).indices
 
-                terminate[top_ids.squeeze()==stop_token_id] = True
+                terminate[top_ids.squeeze(-1)==stop_token_id] = True
                 # early stop
                 if torch.all(terminate):
                     break

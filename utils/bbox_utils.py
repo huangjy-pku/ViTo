@@ -1,6 +1,7 @@
 import numpy as np
 import skimage.draw as skdraw
 import torch
+from torch.nn.functional import interpolate
 
 
 def seq2bbox(pred_seq, num_bins=200):
@@ -40,7 +41,8 @@ def seq2mask(pred_seq, vqgan, down_factor=32):
         else:
             return None
     with torch.no_grad():
-        pred_mask = vqgan.decode_code(torch.LongTensor(code), shape=(1, side, side, -1))
+        pred_mask = vqgan.decode_code(torch.LongTensor(code).to(vqgan.device),
+                                      shape=(1, side, side, -1))
     # vqgan reconstruction shape at [1, 3, 256, 256], value in [-1, 1]
     pred_mask = pred_mask.squeeze().detach().cpu().numpy()
     pred_mask = (pred_mask+1) / 2
@@ -92,8 +94,17 @@ def vis_mask(mask, img, color=(255, 0, 0), modify=False, alpha=0.2):
         img_ = img
     else:
         img_ = np.copy(img)
+    
+    # mask shape may not match img shape
+    if mask.shape != img_.shape[:2]:
+        # ndarray [256, 256] -> tensor [1, 1, 256, 256] -> ndarray [256, 256]
+        mask = torch.from_numpy(mask)
+        mask = interpolate(mask[None, None].float(), img_.shape[:2], mode="nearest")[0, 0]
+        mask = mask.numpy()
+    
     if mask.dtype != bool:
         mask = mask >= 0.5
+    
     rr, cc = mask.nonzero()
     skdraw.set_color(img_, (rr, cc), color, alpha=alpha)   # area
     return img_

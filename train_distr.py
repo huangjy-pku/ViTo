@@ -41,11 +41,6 @@ def visualize(model, dataloader, cfg, step, subset):
         cfg.exp_dir,
         f'visualizations/{subset}_'+str(step).zfill(6))
     io.mkdir_if_not_exists(vis_dir, recursive=True)
-    if 'dense' in cfg.task:
-        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
-                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
-        vqgan.to(cfg.vqgan.device)
-        vqgan.eval()
 
     html_writer = HtmlWriter(os.path.join(vis_dir, 'index.html'))
     html_writer.add_element({
@@ -76,8 +71,8 @@ def visualize(model, dataloader, cfg, step, subset):
         # visualize predictions
         pred_prob = outputs_logits.softmax(-1)
         topk = torch.topk(pred_prob, k=1, dim=-1)
-        topk_ids = topk.indices.detach().squeeze().cpu().numpy()   # [batch_size, num_l_tokens]
-        topk_values = topk.values.detach().squeeze().cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_values = topk.values.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
 
         pred_seqs = model.token_ids_to_words(topk_ids)
 
@@ -100,11 +95,12 @@ def visualize(model, dataloader, cfg, step, subset):
                 if bbox is not None:
                     vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
-                gt = t['mask'].detach().squeeze().cpu().numpy().astype(bool)
+                gt = t['mask'].detach().squeeze(0).cpu().numpy().astype(bool)
                 vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
                 mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
-                vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
+                if mask is not None:
+                    vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
 
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
             skio.imsave(os.path.join(vis_dir, vis_name), vis_img)
@@ -149,8 +145,8 @@ def train_worker(gpu, cfg):
         print(OmegaConf.to_yaml(cfg))
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, cfg.vqgan),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, cfg.vqgan)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, vqgan),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, vqgan)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))
@@ -266,12 +262,6 @@ def train_worker(gpu, cfg):
         best_metric = model_selection_metric
         best_epoch = last_epoch
         print(f'Loading checkpoint at the end of epoch {last_epoch}')
-
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        cfg.training.lr_milestones,
-        cfg.training.lr_drop,
-        last_epoch=last_epoch)
     
     warmup_iters = len(dataloaders['train'])
     if cfg.training.lr_warmup is True:
@@ -385,9 +375,6 @@ def train_worker(gpu, cfg):
                 warmup_scheduler.step()
             elif cfg.training.lr_warmup is True and epoch == 0 and it < warmup_iters:
                 warmup_scheduler.step(it)
-
-        if not cfg.training.lr_linear_decay:
-            lr_scheduler.step()
         
         if gpu == 0 and ((not launch) or cfg.training.run_eval_at_launch):
             model_selection_metric = 0
@@ -403,7 +390,7 @@ def train_worker(gpu, cfg):
                         collate_fn=detr_collate_fn)
                     
                     with torch.no_grad():
-                        metrics = refexp_metrics(model, eval_dataloader, cfg)
+                        metrics = refexp_metrics(model, eval_dataloader, cfg, vqgan)
                     
                     eval_str = f'Dataset: {dataset_name} | Subset: {eval_subset} | Epoch: {epoch} | '
                     bbox_AP50 = bbox_mAP = mask_mIoU = mask_AP = 0
@@ -440,7 +427,6 @@ def train_worker(gpu, cfg):
                     'optimizer': optimizer.state_dict(),
                     'epoch': best_epoch,
                     'step': step,
-                    'lr': lr_scheduler.get_last_lr(),
                     'model_selection_metric': model_selection_metric,
                     'warmup_scheduler': warmup_scheduler.state_dict() if cfg.training.lr_linear_decay else None,
                 }, os.path.join(cfg.ckpt_dir, 'model.pth'))
@@ -452,6 +438,13 @@ def main(cfg):
     io.mkdir_if_not_exists(cfg.tb_dir, recursive=True)
     io.mkdir_if_not_exists(cfg.model.store_path, recursive=True)
     # nltk.download('punkt')
+    global vqgan
+    vqgan = None
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
     
     if cfg.training.freeze:
         cfg.training.batch_size = cfg.training.frozen_batch_size

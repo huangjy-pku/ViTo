@@ -7,17 +7,10 @@ import torch
 import utils.io as io
 from utils.bbox_utils import seq2bbox, seq2mask
 from .evaluator import RefexpEvaluator
-from taming.vqgan import VQModel
 
 
-def refexp_metrics(model, dataloader, cfg):
+def refexp_metrics(model, dataloader, cfg, vqgan):
     device = f'cuda:{cfg.gpu}'
-
-    if 'dense' in cfg.task:
-        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
-                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
-        vqgan.to(cfg.vqgan.device)
-        vqgan.eval()
 
     model.eval()
     
@@ -40,7 +33,7 @@ def refexp_metrics(model, dataloader, cfg):
         outputs_logits = model(imgs, queries, answer_token_ids=None, fnames=fnames)
 
         topk = torch.topk(outputs_logits, k=1, dim=-1)
-        topk_ids = topk.indices.detach().squeeze().cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
         pred_seqs = model.token_ids_to_words(topk_ids)
 
         B = len(targets)

@@ -4,10 +4,11 @@ from torch.utils.data import Dataset, DataLoader
 
 from utils.misc import collate_fn as detr_collate_fn
 from .generic_dataset import GenericDataset
+from taming.vqgan import VQModel
 
 
 class MultitaskDataset(Dataset):
-    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan_cfg=None):
+    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan=None):
         super().__init__()
         self.datasets = {}
         self.sample_l = []   # lower index
@@ -16,7 +17,7 @@ class MultitaskDataset(Dataset):
             for task in tasks:
                 dataset_name = f'{dataset}_{task}'
                 self.datasets[dataset_name] = GenericDataset(
-                    dataset_name, info, subset, task, num_bins=num_bins, vqgan_cfg=vqgan_cfg
+                    dataset_name, info, subset, task, num_bins, vqgan
                 )
                 L = len(self.datasets[dataset_name])
                 if len(self.sample_l) == 0:

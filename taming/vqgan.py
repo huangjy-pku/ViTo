@@ -10,7 +10,6 @@ from taming.quantize import VectorQuantizer2 as VectorQuantizer
 class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
-                 lossconfig,
                  n_embed,   # vocab_size
                  embed_dim,   # dim of token vector
                  ckpt_path=None,
@@ -38,12 +37,16 @@ class VQModel(pl.LightningModule):
 
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")["state_dict"]
+        sd_self = self.state_dict()
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
+            if k in sd_self and sd_self[k].shape != sd[k].shape:
+                print(f"Deleting key {k} from state_dict.")
+                del sd[k]
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
 
@@ -83,56 +86,6 @@ class VQModel(pl.LightningModule):
             x = x[..., None]
             x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
-
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        x = self.get_input(batch)
-        xrec, qloss = self(x)
-
-        if optimizer_idx == 0:
-            # autoencode
-            aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-
-            self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return aeloss
-
-        if optimizer_idx == 1:
-            # discriminator
-            discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-            self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return discloss
-
-    def validation_step(self, batch, batch_idx):
-        x = self.get_input(batch)
-        xrec, qloss = self(x)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
-
-        discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
-        rec_loss = log_dict_ae["val/rec_loss"]
-        self.log("val/rec_loss", rec_loss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        self.log("val/aeloss", aeloss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        self.log_dict(log_dict_ae)
-        self.log_dict(log_dict_disc)
-        return self.log_dict
-
-    def configure_optimizers(self):
-        lr = self.learning_rate
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
-                                  list(self.decoder.parameters())+
-                                  list(self.quantize.parameters())+
-                                  list(self.quant_conv.parameters())+
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []
 
     def get_last_layer(self):
         return self.decoder.conv_out.weight

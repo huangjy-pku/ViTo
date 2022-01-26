@@ -11,6 +11,7 @@ from utils.misc import collate_fn as detr_collate_fn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from omegaconf import OmegaConf
+import multiprocessing
 
 from model.vito import ViTo
 from dataset.multitask_dataset import MultitaskDataset
@@ -26,11 +27,6 @@ def visualize(model, dataloader, cfg, step, subset):
         cfg.exp_dir,
         f'visualizations/{subset}_'+str(step).zfill(6))
     io.mkdir_if_not_exists(vis_dir, recursive=True)
-    if 'dense' in cfg.task:
-        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
-                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
-        vqgan.to(cfg.vqgan.device)
-        vqgan.eval()
 
     html_writer = HtmlWriter(os.path.join(vis_dir, 'index.html'))
     html_writer.add_element({
@@ -61,8 +57,8 @@ def visualize(model, dataloader, cfg, step, subset):
         # visualize predictions
         pred_prob = outputs_logits.softmax(-1)
         topk = torch.topk(pred_prob, k=1, dim=-1)
-        topk_ids = topk.indices.detach().squeeze().cpu().numpy()   # [batch_size, num_l_tokens]
-        topk_values = topk.values.detach().squeeze().cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_values = topk.values.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
 
         pred_seqs = model.token_ids_to_words(topk_ids)
 
@@ -85,11 +81,12 @@ def visualize(model, dataloader, cfg, step, subset):
                 if bbox is not None:
                     vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
-                gt = t['mask'].detach().squeeze().cpu().numpy().astype(bool)
+                gt = t['mask'].detach().squeeze(0).cpu().numpy().astype(bool)
                 vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
                 mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
-                vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
+                if mask is not None:
+                    vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
 
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
             skio.imsave(os.path.join(vis_dir, vis_name), vis_img)
@@ -101,10 +98,12 @@ def visualize(model, dataloader, cfg, step, subset):
             #     3: answer_tokens[i],
             #     4: np.round(topk_values[i], 4)
             # })
+            mask_name = f'mask_{count+i}.png'
+            skio.imsave(os.path.join(vis_dir, mask_name), gt)
             html_writer.add_element({
                 0: queries[i],
                 1: html_writer.image_tag(vis_name),
-                2: gt,
+                2: html_writer.image_tag(mask_name),
                 3: answer_tokens[i],
                 4: np.round(topk_values[i], 4)
             })
@@ -124,15 +123,25 @@ def main(cfg):
 
     print(OmegaConf.to_yaml(cfg))
 
+    global vqgan
+    vqgan = None
+    if 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
+
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, cfg.vqgan),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, cfg.vqgan)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, vqgan),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, vqgan)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))
 
+    device = f'cuda:{cfg.gpu}'
     model = ViTo(cfg.model)
-    model.to('cuda')
+    model.to(device)
+    model.device = device
 
     dataloaders = {}
     for subset, dataset in datasets.items():
@@ -140,7 +149,7 @@ def main(cfg):
             dataset,
             batch_size=cfg.batch_size,
             collate_fn=detr_collate_fn,
-            num_workers=cfg.workers,
+            num_workers=0,
             pin_memory=True,
             shuffle=True
         )

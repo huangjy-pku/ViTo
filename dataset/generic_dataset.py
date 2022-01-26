@@ -9,7 +9,6 @@ from . import transforms as T
 
 import utils.io as io
 from utils.misc import collate_fn as detr_collate_fn
-from taming.vqgan import VQModel
 
 
 def bbox_process(bbox, num_bins):
@@ -29,8 +28,8 @@ def bbox_process(bbox, num_bins):
 def dense_process(mask_ori, vqgan):
     """
     from dense binary mask to token sequence
-    original mask: tensor at shape [1, H, W], value in {0.0, 1.0}
-    vqgan requires input at shape [3, 256, 256], value in {-1, 1}
+    original mask: tensor at shape [1, H, W], int value in {0.0, 1.0}
+    vqgan requires input at shape [1, 3, 256, 256], float value in [-1, 1]
     vqgan encoder outputs token sequence [8x8] represented in indices, value in [0, 1023]
     finally convert into string
     return mask at shape [1, 256, 256], value in {0.0, 1.0}
@@ -45,17 +44,17 @@ def dense_process(mask_ori, vqgan):
     if torch.all(mask==0):
         mask = T.F.crop(mask_ori, 0, 0, 256, 256)
         crop_flag = 0
-    if torch.all(mask==0):
-        mask = T.F.crop(mask_ori, H-256, W-256, 256, 256)
-        crop_flag = 2
-    if torch.all(mask=0):
-        raise Exception("empty mask encountered")
+        if torch.all(mask==0):
+            mask = T.F.crop(mask_ori, H-256, W-256, 256, 256)
+            crop_flag = 2
+            if torch.all(mask==0):
+                raise Exception("empty mask encountered")
 
     # value rescale to [-1, 1]
     mask_vqgan = 2*mask - 1
 
     # replicate three channels
-    mask_vqgan = mask_vqgan.repeat(3, 1, 1)
+    mask_vqgan = mask_vqgan.repeat(3, 1, 1).unsqueeze(0).to(torch.float).to(vqgan.device)
 
     # encode mask to sequence
     with torch.no_grad():
@@ -64,8 +63,8 @@ def dense_process(mask_ori, vqgan):
     
     target_seq = '__dense_begin__'
     for idx in encoding_indices:
-        target_seq.append(f' code_{str(idx)}')
-    target_seq.append(' __dense_end__')
+        target_seq += f' code_{str(idx.item())}'
+    target_seq += ' __dense_end__'
 
     return target_seq, mask, crop_flag
 
@@ -131,23 +130,21 @@ def make_coco_transforms(image_set, high_resolution, cautious):
 
 
 class GenericDataset(Dataset):
-    def __init__(self, dataset_name, info, subset, task, num_bins=200, vqgan_cfg=None):
+    def __init__(self, dataset_name, info, subset, task, num_bins, vqgan):
         super().__init__()
         self.dataset_name = dataset_name
         self.info = info
         self.subset = subset
         self.task = task
-        self.num_bins = num_bins
         self.samples = io.load_json_object(
             os.path.join(info.anno_dir, f'{subset}.json')
         )
         print(f'load {len(self.samples)} samples in {self.dataset_name}_{self.subset}')
         self.transforms = make_coco_transforms(subset, high_resolution=True, cautious=True)
-        if task == 'dense':
-            self.vqgan = VQModel(ddconfig=vqgan_cfg.ddconfig, n_embed=vqgan_cfg.n_embed,
-                        embed_dim=vqgan_cfg.embed_dim, ckpt_path=vqgan_cfg.ckpt)
-            self.vqgan.to(vqgan_cfg.device)
-            self.vqgan.eval()
+        if task == 'bbox':
+            self.num_bins = num_bins
+        elif task == 'dense':
+            self.vqgan = vqgan
     
     def __len__(self):
         return len(self.samples)
@@ -167,36 +164,27 @@ class GenericDataset(Dataset):
         bbox = torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4)
         mask = self.get_mask(sample['segment_id'])
 
-        if self.task == 'bbox':
-            query = 'bound '+sample['sentences'][0]['sent']+' with box.'
-            target = {
-                'query': query,
-                'boxes': bbox
-            }
-        elif self.task == 'dense':
-            query = 'segment '+sample['sentences'][0]['sent']+' with mask.'
-            target = {
-                'query': query,
-                'masks': mask
-            }
-        else:
-            raise NotImplementedError
+        query = sample['sentences'][0]['sent']
+        target = {
+            'query': query,
+            'boxes': bbox,
+            'masks': mask
+        }
 
         img, target = self.transforms(img, target)
 
         targets = {'task': self.task}
-
-        query = target['query']
-
-        if 'boxes' in target:
+        if self.task == 'bbox':
+            query = 'bound ' + target['query'] + ' with box.'
             bbox = target['boxes'][0]
             target_seq = bbox_process(bbox, self.num_bins)
             targets.update({
                 'bbox': bbox,
                 'answer': target_seq
             })
-        elif 'masks' in target:
-            mask = target['mask']
+        elif self.task == 'dense':
+            query = 'segment ' + target['query'] + ' with mask.'
+            mask = target['masks']
             target_seq, mask, crop_flag = dense_process(mask, self.vqgan)
             targets.update({
                 'mask': mask,
