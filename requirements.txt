@@ -11,8 +11,11 @@ click==8.0.3
 cycler==0.11.0
 cymem==2.0.6
 Cython==0.29.26
+einops==0.3.0
 filelock==3.4.2
 fonttools==4.28.5
+fsspec==2022.1.0
+future==0.18.2
 google-auth==2.3.3
 google-auth-oauthlib==0.4.6
 grpcio==1.43.0
@@ -56,6 +59,7 @@ pydantic==1.8.2
 pyparsing==3.0.6
 python-dateutil==2.8.2
 python-utils==2.7.1
+pytorch-lightning==1.0.8
 pytorch-transformers==1.2.0
 PyWavelets==1.2.0
 PyYAML==6.0

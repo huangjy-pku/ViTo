@@ -2,8 +2,7 @@
 
 #### TODO
 
-1. utils.vis_mask, visualize masks
-2. consider offline augmentation w.r.t. dense task
+1. Consider offline augmentation w.r.t. dense task
 
 #### Installation
 
