@@ -25,8 +25,8 @@ def seq2bbox(pred_seq, num_bins=200):
     return np.array(bbox)
 
 
-def seq2mask(pred_seq, vqgan, down_factor=32):
-    side = 256 / down_factor
+def seq2mask(pred_seq, vqgan, down_factor=16):
+    side = int(256 / down_factor)
     code_len = side ** 2
     
     for i, token in enumerate(pred_seq):

@@ -1,11 +1,12 @@
 exp_name: default
-output_dir: /home/jiangyong/data/vito
+output_dir: /mnt/data/jiangyong/vito
 exp_dir: ${output_dir}/${exp_name}
 tb_dir: ${exp_dir}/tb_logs
 ckpt_dir: ${exp_dir}/ckpts
-refexp_data: /home/jiangyong/refexp/data
+refexp_data: /mnt/data/jiangyong/refexp/data
 refexp_anno: /home/jiangyong/repo/vito/data/anns
 refexp_mask: /home/jiangyong/repo/vito/data/masks
+offline_root: ${output_dir}/offline_root
 
 gpu: 0
 num_nodes: 1
@@ -28,6 +29,7 @@ model:
   num_feature_levels: 1
   extra_conv: False
   codebook_size: ${vqgan.n_embed}
+  code_dim: ${vqgan.embed_dim}
   backbone: resnet50
   hidden_dim: ${model.encoder.hidden_dim}
   position_embedding: sine
@@ -37,7 +39,7 @@ model:
   vocab_embed: ${output_dir}/vocab_embed.npy
   vqgan_embed: ${output_dir}/vqgan_embed.pth
   in_max_pos_len: 100
-  out_max_pos_len: 10
+  out_max_pos_len: 270
   answer_head: null
   roberta_dim: 768
   store_path: ${output_dir}/encoding_store
@@ -63,9 +65,9 @@ model:
   loss: ${loss}
 
 vqgan:
-  embed_dim: 768
+  embed_dim: 256
   n_embed: 1024
-  downsample_factor: 32
+  downsample_factor: 16
   device: cuda:${gpu}
   ckpt: ${output_dir}/vqgan.ckpt
   ddconfig:
@@ -75,9 +77,9 @@ vqgan:
     in_channels: 3
     out_ch: 3
     ch: 128
-    ch_mult: [1,1,2,2,4,4]   # num_down = len(ch_mult)-1
+    ch_mult: [1,1,2,2,4]   # num_down = len(ch_mult)-1
     num_res_blocks: 2
-    attn_resolutions: [8]
+    attn_resolutions: [16]
     dropout: 0.0
 
 loss:
@@ -90,18 +92,22 @@ dataset:
     img_dir: ${refexp_data}/images/saiapr_tc-12
     anno_dir: ${refexp_anno}/refclef
     mask_dir: ${refexp_mask}/refclef
+    offline_root: ${offline_root}
   refcoco:
     img_dir: ${refexp_data}/images/mscoco/images/train2014
     anno_dir: ${refexp_anno}/refcoco
     mask_dir: ${refexp_mask}/refcoco
+    offline_root: ${offline_root}
   refcoco+:
     img_dir: ${refexp_data}/images/mscoco/images/train2014
     anno_dir: ${refexp_anno}/refcoco+
     mask_dir: ${refexp_mask}/refcoco+
+    offline_root: ${offline_root}
   refcocog:
     img_dir: ${refexp_data}/images/mscoco/images/train2014
     anno_dir: ${refexp_anno}/refcocog
     mask_dir: ${refexp_mask}/refcocog
+    offline_root: ${offline_root}
 
 training:
   ckpt: ${exp_dir}/ckpts/model.pth
@@ -109,8 +115,9 @@ training:
   frozen_epochs: 0
   frozen_batch_size: ${training.batch_size}
   num_epochs: 60
-  batch_size: 1
+  batch_size: 128
   num_workers: 30
+  augmentation: offline
   vis_step: 2000
   log_step: 10
   ckpt_step: 2000
@@ -124,7 +131,7 @@ training:
   run_vis_at_launch: True
   num_vis_samples: 15
   run_eval_at_launch: True
-  num_val_samples: 10000
+  num_val_samples: 100
 
 eval:
   ckpt: ${exp_dir}/ckpts/model.pth

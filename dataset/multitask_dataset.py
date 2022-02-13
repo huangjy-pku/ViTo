@@ -8,7 +8,7 @@ from taming.vqgan import VQModel
 
 
 class MultitaskDataset(Dataset):
-    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan=None):
+    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan=None, aug='online'):
         super().__init__()
         self.datasets = {}
         self.sample_l = []   # lower index
@@ -17,7 +17,7 @@ class MultitaskDataset(Dataset):
             for task in tasks:
                 dataset_name = f'{dataset}_{task}'
                 self.datasets[dataset_name] = GenericDataset(
-                    dataset_name, info, subset, task, num_bins, vqgan
+                    dataset_name, info, subset, task, num_bins, vqgan, aug
                 )
                 L = len(self.datasets[dataset_name])
                 if len(self.sample_l) == 0:

@@ -18,7 +18,7 @@ import utils.io as io
 from taming.vqgan import VQModel
 
 
-def run_eval(cfg):
+def run_eval(cfg, vqgan):
     testset = {}
     for dataset, info in cfg.dataset.items():
         for json_name in os.listdir(info.anno_dir):
@@ -28,7 +28,7 @@ def run_eval(cfg):
                     dataset_name = f'{dataset}_{task}'
                     testset.update({
                         f'{dataset_name}_{subset}': \
-                            GenericDataset(dataset_name, info, subset, task, cfg.num_bins, vqgan)})
+                            GenericDataset(dataset_name, info, subset, task, cfg.model.num_bins, vqgan, cfg.training.augmentation)})
 
     dataloaders = {}
     for dataset_name, dataset in testset.items():
@@ -90,7 +90,7 @@ def main(cfg):
         vqgan.to(cfg.vqgan.device)
         vqgan.eval()
     
-    run_eval(cfg)
+    run_eval(cfg, vqgan)
 
 
 if __name__=='__main__':

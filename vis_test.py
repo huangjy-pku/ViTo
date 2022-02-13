@@ -132,8 +132,8 @@ def main(cfg):
         vqgan.eval()
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, vqgan),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, vqgan)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, vqgan, cfg.training.augmentation),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, vqgan, cfg.training.augmentation)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))

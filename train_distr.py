@@ -35,7 +35,7 @@ def grad_norm(params):
     return total_norm ** (1. / 2)
     
 
-def visualize(model, dataloader, cfg, step, subset):
+def visualize(model, dataloader, cfg, step, subset, vqgan):
     device = f'cuda:{cfg.gpu}'
     vis_dir = os.path.join(
         cfg.exp_dir,
@@ -57,7 +57,7 @@ def visualize(model, dataloader, cfg, step, subset):
         imgs = imgs.to(torch.device(device))
         for t in targets:
             for k, v in t.items():
-                if not isinstance(v, str):
+                if v is not None and not isinstance(v, str):
                     t[k] = v.cuda(device)
         
         answer_tokens, answer_token_ids = model.encode_answers(targets, device)
@@ -140,13 +140,14 @@ def train_worker(gpu, cfg):
     cfg.gpu = gpu
     if cfg.gpu is not None:
         print("Use GPU: {} for training".format(cfg.gpu))
+    device = f'cuda:{cfg.gpu}'
 
     if gpu == 0:
         print(OmegaConf.to_yaml(cfg))
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, vqgan),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, vqgan)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.model.num_bins, None, cfg.training.augmentation),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.model.num_bins, None, cfg.training.augmentation)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))
@@ -156,6 +157,12 @@ def train_worker(gpu, cfg):
         model.load_pretr_detr()
     if cfg.training.freeze is True:
         freeze_pretr_params(model)
+    
+    if gpu == 0 and 'dense' in cfg.task:
+        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
+                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
+        vqgan.to(cfg.vqgan.device)
+        vqgan.eval()
 
     if cfg.multiprocessing_distributed:
         cfg.rank = cfg.rank * cfg.ngpus_per_node + cfg.gpu
@@ -181,7 +188,7 @@ def train_worker(gpu, cfg):
         model.token_ids_to_words = token_ids_to_words
         model.init_params = init_params
         model.vocab = vocab
-        model.device = cfg.gpu
+        model.device = device
 
         # create sampler for dataloader
         sampler = {'val': None}
@@ -203,7 +210,6 @@ def train_worker(gpu, cfg):
             shuffle=(sampler[subset] is None),
             sampler=sampler[subset])
 
-    device = f'cuda:{cfg.gpu}'
     if gpu == 0:
         writer = SummaryWriter(log_dir=cfg.tb_dir)
 
@@ -272,13 +278,13 @@ def train_worker(gpu, cfg):
                 optimizer,
                 warmup_steps=warmup_steps,
                 t_total=num_train_optimization_steps,
-                last_epoch=step)
+                last_epoch=-1)
         else:
             warmup_scheduler = GradualWarmupScheduler(
                 optimizer,
                 multiplier=1,
                 total_epoch=warmup_iters,
-                last_epoch=step)   # updated every iter not epoch
+                last_epoch=-1)   # updated every iter not epoch
             if gpu == 0:
                 print('Warmup iters:', warmup_iters)
 
@@ -363,7 +369,7 @@ def train_worker(gpu, cfg):
                     model.eval()
                     for subset in ['train', 'val']:
                         print(f'Visualizing {subset} ...')
-                        visualize(model, dataloaders[subset], cfg, step, subset)
+                        visualize(model, dataloaders[subset], cfg, step, subset, vqgan)
 
             if gpu == 0 and step % (10*cfg.training.log_step) == 0:
                 print('Exp:', cfg.exp_name)
@@ -393,7 +399,8 @@ def train_worker(gpu, cfg):
                         metrics = refexp_metrics(model, eval_dataloader, cfg, vqgan)
                     
                     eval_str = f'Dataset: {dataset_name} | Subset: {eval_subset} | Epoch: {epoch} | '
-                    bbox_AP50 = bbox_mAP = mask_mIoU = mask_AP = 0
+                    bbox_AP50 = bbox_mAP = mask_mIoU = 0
+                    mask_AP = [0, 0, 0]
                     if metrics['bbox_AP@0.5'] is not None:
                         bbox_AP50 = round(metrics['bbox_AP@0.5'], 4)
                         bbox_mAP = round(metrics['bbox_mAP'], 4)
@@ -438,13 +445,6 @@ def main(cfg):
     io.mkdir_if_not_exists(cfg.tb_dir, recursive=True)
     io.mkdir_if_not_exists(cfg.model.store_path, recursive=True)
     # nltk.download('punkt')
-    global vqgan
-    vqgan = None
-    if 'dense' in cfg.task:
-        vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
-                        embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
-        vqgan.to(cfg.vqgan.device)
-        vqgan.eval()
     
     if cfg.training.freeze:
         cfg.training.batch_size = cfg.training.frozen_batch_size

@@ -27,7 +27,7 @@ def refexp_metrics(model, dataloader, cfg, vqgan):
         imgs = imgs.to(torch.device(device))
         for t in targets:
             for k, v in t.items():
-                if not isinstance(v, str):
+                if v is not None and not isinstance(v, str):
                     t[k] = v.cuda(device)
 
         outputs_logits = model(imgs, queries, answer_token_ids=None, fnames=fnames)

@@ -81,6 +81,7 @@ class ViTo(nn.Module):
         self.answer_head = build_answer_head(cfg, answer_out_transform)
 
         if 'dense' in cfg.task:
+            self.code_proj = nn.Linear(cfg.code_dim, cfg.roberta_dim)
             self.vocab_expansion(cfg, cfg.vqgan_embed)
         else:
             self.vocab_expansion(cfg)
@@ -124,7 +125,7 @@ class ViTo(nn.Module):
             if os.path.exists(vqgan_embed_path):
                 self.code_embed = torch.load(vqgan_embed_path)
             else:
-                self.code_embed = 0.1 * torch.randn([cfg.codebook_size, cfg.roberta_dim])
+                self.code_embed = 0.1 * torch.randn([cfg.codebook_size, cfg.code_dim])
             self.code_embed = nn.Parameter(self.code_embed, requires_grad=False)
 
         if cfg.answer_head == 'linear':
@@ -133,10 +134,10 @@ class ViTo(nn.Module):
         
         self.repre_embed = 0.1 * torch.randn([init_embed, cfg.roberta_dim])
         self.repre_embed = nn.Parameter(self.repre_embed, requires_grad=True)
-        if 'dense' in cfg.task:
-            self.special_embed = torch.cat([self.repre_embed, self.code_embed], dim=0)
-        else:
-            self.special_embed = self.repre_embed
+        # if 'dense' in cfg.task:
+        #     self.special_embed = torch.cat([self.repre_embed, self.code_embed], dim=0)
+        # else:
+        #     self.special_embed = self.repre_embed
         
         self.vocab = self.answer_head.vocab
         self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
@@ -226,8 +227,12 @@ class ViTo(nn.Module):
         memory = self.encoder(srcs, masks, pos, task_encoding, task_mask, task_pos_enc)
         # [batch_size, num_v_tokens+num_l_tokens, hidden_dim]
 
-        self.joint_embed = torch.cat(
-            [self.answer_head.fixed_embed, self.special_embed.to(self.device)], dim=0)
+        if 'dense' in self.cfg.task:
+            self.joint_embed = torch.cat(
+                [self.answer_head.fixed_embed, self.repre_embed.to(self.device),
+                 self.code_proj(self.code_embed.to(self.device))], dim=0)
+        else:
+            self.joint_embed = torch.cat([self.answer_head.fixed_embed, self.repre_embed.to(self.device)], dim=0)
         # update joint_embed per forwarding
 
         output_logits = self.decode(answer_token_ids, memory)

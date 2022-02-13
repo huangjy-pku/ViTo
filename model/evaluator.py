@@ -89,6 +89,7 @@ class RefexpEvaluator():
         pred_mask: ndarray [256, 256], float in [0, 1]
         gt_mask: tensor [256, 256], float in {0, 1}
         """
+        pred_mask = np.array(pred_mask)
         pred_mask = pred_mask >= 0.5
         # to bool {0, 1}
         if isinstance(gt_mask, torch.Tensor):

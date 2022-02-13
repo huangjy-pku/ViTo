@@ -6,12 +6,52 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import functional as F
 from . import transforms as T
+from random import randint
 
 import utils.io as io
 from utils.misc import collate_fn as detr_collate_fn
 
+clef_category = ['', '', 'aerostatic balloon', 'air vehicles', 'airplane', 'ancent building', 'animal', 'ant', 'antelope',
+                 'ape', 'apple', 'arctic', 'astronaut', 'baby', 'ball', 'balloon', 'beach', 'bear', 'beaver', 'bed', 'beetle',
+                 'bench', 'bicycle', 'bird', 'boat', 'boat rafting', 'bobcat wildcat', 'book', 'bottle', 'branch', 'bridge',
+                 'building', 'bull', 'bus', 'bush', 'butterfly', 'cabin', 'cactus', 'camel', 'camera', 'can', 'canine',
+                 'cannon', 'car', 'caribou', 'castle', 'cat', 'caterpillar', 'cello', 'chair', 'cheetah', 'child', 'child boy',
+                 'child girl', 'chimney', 'church', 'church interior', 'city', 'clock', 'cloth', 'cloud', 'column', 'construction',
+                 'construction other', 'coral', 'cougar puma', 'couple of persons', 'cow', 'coyote', 'crab', 'crocodile', 'cup',
+                 'curtain', 'deer', 'desk', 'dessert', 'dish', 'diver', 'dog', 'dolphin', 'door', 'dragonfly', 'eagle', 'edifice',
+                 'elephant', 'elk', 'entity', 'fabric', 'face of person', 'feline', 'fence', 'fire', 'firework', 'fish', 'flag',
+                 'flamingo', 'flock of birds', 'floor', 'floor carpet', 'floor other', 'floor tennis court', 'floor wood', 'flower',
+                 'flowerbed', 'food', 'fountain', 'fowl hen', 'fox', 'fruit', 'furniture', 'furniture other', 'generic objects',
+                 'giraffe', 'glacier', 'glass', 'goat', 'grapes', 'grass', 'ground', 'ground vehicles', 'group of persons', 'guitar',
+                 'hand of person', 'handcraft', 'hat', 'hawk', 'head of person', 'hedgehog porcupine', 'helicopter', 'herd of mammals',
+                 'highway', 'hill', 'horn', 'horse', 'house', 'humans', 'hut', 'ice', 'iguana', 'insect', 'island', 'jaguar', 'jewelry',
+                 'kangaroo', 'kitchen pot', 'koala', 'lake', 'lamp', 'landscape nature', 'leaf', 'leopard', 'lighthouse', 'lion',
+                 'lizard', 'llama', 'lobster', 'log', 'lynx', 'mammal', 'mammal other', 'man', 'man made', 'man made other', 'mandril',
+                 'marsupial', 'monkey', 'monument', 'motorcycle', 'mountain', 'mural carving', 'mushroom', 'musical instrument',
+                 'nest', 'non wooden furniture', 'ocean', 'ocean animal', 'octopus', 'orange', 'other entity', 'owl', 'pagoda',
+                 'painting', 'palm', 'panda', 'paper', 'parrot', 'penguin', 'person', 'person related objects', 'piano', 'pigeon',
+                 'plant', 'plant pot', 'polar bear', 'primate', 'public sign', 'pyramid', 'rabbit', 'rafter', 'railroad', 'reptile',
+                 'rhinoceros', 'river', 'road', 'rock', 'rodent', 'roof', 'rooster', 'ruin archeological', 'sand beach', 'sand dessert',
+                 'saxophone', 'school of fishes', 'scorpion', 'screen', 'seahorse', 'seal', 'semaphore', 'sheep', 'shell', 'ship',
+                 'shore', 'sidewalk', 'sky', 'sky blue', 'sky light', 'sky night', 'sky red sunset dusk', 'smoke', 'snake', 'snow',
+                 'space shuttle', 'squirrel', 'stairs', 'starfish', 'statue', 'steam', 'strawberry', 'street', 'sun', 'surfboard',
+                 'swimming pool', 'table', 'telephone', 'tiger', 'tire', 'tower', 'toy', 'train', 'trash', 'tree', 'trees', 'trombone',
+                 'trumpet', 'trunk', 'turtle', 'umbrella', 'vegetable', 'vegetation', 'vehicle', 'vehicles with tires', 'viola',
+                 'violin', 'volcano', 'wall', 'water', 'water reflection', 'water vehicles', 'waterfall', 'waves', 'whale', 'window',
+                 'wolf', 'woman', 'wood', 'wooden furniture', 'zebra']
 
-def bbox_process(bbox, num_bins):
+coco_category = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+                 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+                 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+                 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
+                 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+                 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+                 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard',
+                 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
+                 'teddy bear', 'hair drier', 'toothbrush']
+
+
+def bbox_process(bbox, num_bins, cat, cat_type):
     """
     from absolute coordinates to position bins token
     input bbox: [x_min, y_min, x_max, y_max]
@@ -22,10 +62,13 @@ def bbox_process(bbox, num_bins):
     token_y1 = np.clip(round(float(y1)*num_bins-0.5), 0, num_bins-1)
     token_x2 = np.clip(round(float(x2)*num_bins-0.5), 0, num_bins-1)
     token_y2 = np.clip(round(float(y2)*num_bins-0.5), 0, num_bins-1)
-    return f'__bbox_begin__ pos_{str(token_x1)} pos_{str(token_y1)} pos_{str(token_x2)} pos_{str(token_y2)} __bbox_end__'
+    if cat_type == 'refclef':
+        target_seq = f'{clef_category[cat]} '
+    elif cat_type == 'refcoco':
+        target_seq = f'{coco_category[cat]} '
+    return target_seq + f'__bbox_begin__ pos_{str(token_x1)} pos_{str(token_y1)} pos_{str(token_x2)} pos_{str(token_y2)} __bbox_end__'
 
-
-def dense_process(mask_ori, vqgan):
+def dense_process(mask_ori, vqgan, cat, cat_type, noseq=False):
     """
     from dense binary mask to token sequence
     original mask: tensor at shape [1, H, W], int value in {0.0, 1.0}
@@ -38,17 +81,14 @@ def dense_process(mask_ori, vqgan):
     # resize to 256x256, scale first then crop center
     mask_ori = T.F.resize(mask_ori, 256)
     H, W = mask_ori.shape[-2:]
-    mask = T.F.crop(mask_ori, (H-256)//2, (W-256)//2, 256, 256)
-    crop_flag = 1
-    # try center crop, and make sure target present
-    if torch.all(mask==0):
-        mask = T.F.crop(mask_ori, 0, 0, 256, 256)
-        crop_flag = 0
-        if torch.all(mask==0):
-            mask = T.F.crop(mask_ori, H-256, W-256, 256, 256)
-            crop_flag = 2
-            if torch.all(mask==0):
-                raise Exception("empty mask encountered")
+    mask_0 = T.F.crop(mask_ori, 0, 0, 256, 256)
+    mask_1 = T.F.crop(mask_ori, (H-256)//2, (W-256)//2, 256, 256)
+    mask_2 = T.F.crop(mask_ori, H-256, W-256, 256, 256)
+    crop_flag = np.argmax([torch.sum(mask_0), torch.sum(mask_1), torch.sum(mask_2)])
+    # select the most occupation
+    mask = [mask_0, mask_1, mask_2][crop_flag]
+    if noseq:
+        return None, mask, crop_flag
 
     # value rescale to [-1, 1]
     mask_vqgan = 2*mask - 1
@@ -60,8 +100,13 @@ def dense_process(mask_ori, vqgan):
     with torch.no_grad():
         encoding_indices = vqgan.encode(mask_vqgan)[-1][-1]
     # length 8x8, value in [0, 1023]
+
+    if cat_type == 'refclef':
+        target_seq = f'{clef_category[cat]} '
+    elif cat_type == 'refcoco':
+        target_seq = f'{coco_category[cat]} '
     
-    target_seq = '__dense_begin__'
+    target_seq += '__dense_begin__'
     for idx in encoding_indices:
         target_seq += f' code_{str(idx.item())}'
     target_seq += ' __dense_end__'
@@ -72,7 +117,7 @@ def dense_process(mask_ori, vqgan):
 def img_refine_square(img, crop_flag):
     """
     make corresponding refinement on img to match mask cropping
-    img: [3, H, W]
+    img: [3, H, W] or [H, W]
     crop_flag: 0 for left(up), 1 for center, 2 for right(down)
     return img in square shape
     """
@@ -130,7 +175,7 @@ def make_coco_transforms(image_set, high_resolution, cautious):
 
 
 class GenericDataset(Dataset):
-    def __init__(self, dataset_name, info, subset, task, num_bins, vqgan):
+    def __init__(self, dataset_name, info, subset, task, num_bins, vqgan, aug):
         super().__init__()
         self.dataset_name = dataset_name
         self.info = info
@@ -143,8 +188,11 @@ class GenericDataset(Dataset):
         self.transforms = make_coco_transforms(subset, high_resolution=True, cautious=True)
         if task == 'bbox':
             self.num_bins = num_bins
-        elif task == 'dense':
-            self.vqgan = vqgan
+        # elif task == 'dense':
+        #     self.vqgan = vqgan
+        self.augmentation = aug
+        if aug == 'offline':
+            self.offline_root = info.offline_root
     
     def __len__(self):
         return len(self.samples)
@@ -159,17 +207,22 @@ class GenericDataset(Dataset):
 
     def __getitem__(self, i):
         sample = self.samples[i]
-
+        if self.augmentation == 'offline' and self.subset == 'train' and self.task == 'dense':
+            return self.get_offline(sample, i)
+        else:
+            return *self.get_online(sample), self.get_encoding_fname(i)
+    
+    def get_online(self, sample):
         img = self.read_image(sample['img_name'])
+        query = sample['sentences'][0]['sent']
+
         bbox = torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4)
         mask = self.get_mask(sample['segment_id'])
-
-        query = sample['sentences'][0]['sent']
         target = {
-            'query': query,
-            'boxes': bbox,
-            'masks': mask
-        }
+                'query': query,
+                'boxes': bbox,
+                'masks': mask
+            }
 
         img, target = self.transforms(img, target)
 
@@ -177,15 +230,22 @@ class GenericDataset(Dataset):
         if self.task == 'bbox':
             query = 'bound ' + target['query'] + ' with box.'
             bbox = target['boxes'][0]
-            target_seq = bbox_process(bbox, self.num_bins)
+            if 'refclef' in self.dataset_name:
+                target_seq = bbox_process(bbox, self.num_bins, sample['cat'], 'refclef')
+            elif 'refcoco' in self.dataset_name:
+                target_seq = bbox_process(bbox, self.num_bins, sample['cat'], 'refcoco')
             targets.update({
                 'bbox': bbox,
                 'answer': target_seq
             })
         elif self.task == 'dense':
+            assert self.subset != 'train', "online only support non-train dataset"
             query = 'segment ' + target['query'] + ' with mask.'
             mask = target['masks']
-            target_seq, mask, crop_flag = dense_process(mask, self.vqgan)
+            if 'refclef' in self.dataset_name:
+                target_seq, mask, crop_flag = dense_process(mask, None, sample['cat'], 'refclef', noseq=True)
+            elif 'refcoco' in self.dataset_name:
+                target_seq, mask, crop_flag = dense_process(mask, None, sample['cat'], 'refcoco', noseq=True)
             targets.update({
                 'mask': mask,
                 'answer': target_seq
@@ -194,8 +254,35 @@ class GenericDataset(Dataset):
         else:
             raise NotImplementedError
 
-        return img, query, targets, \
-            self.get_encoding_fname(i)
+        return img, query, targets
+    
+    def get_offline(self, sample, i):
+        img = self.read_image(sample['img_name'])
+        normalize = T.Compose([T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+        img, _ = normalize(img, None)
+        img = T.F.resize(img, 800)
+
+        query = sample['sentences'][0]['sent']
+        query = 'segment ' + query + ' with mask.'
+
+        mask = self.get_mask(sample['segment_id'])
+        mask = T.F.resize(mask, 256)
+
+        fname = self.get_encoding_fname(i)
+        fpath = os.path.join(self.offline_root, fname)
+        file = torch.load(fpath)
+        crop_flag = file['crop_flag']
+        target_seq = file['answer']
+
+        img = img_refine_square(img, crop_flag)
+        mask = img_refine_square(mask, crop_flag)
+        targets = {
+            'task': 'dense',
+            'mask': mask,
+            'answer': target_seq
+        }
+
+        return img, query, targets, fname
     
     def get_images_from_tensor(self, imgs):
         """
