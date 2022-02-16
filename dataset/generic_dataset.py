@@ -11,7 +11,7 @@ from random import randint
 import utils.io as io
 from utils.misc import collate_fn as detr_collate_fn
 
-clef_category = ['', '', 'aerostatic balloon', 'air vehicles', 'airplane', 'ancent building', 'animal', 'ant', 'antelope',
+clef_category = ['', 'aerostatic balloon', 'air vehicles', 'airplane', 'ancent building', 'animal', 'ant', 'antelope',
                  'ape', 'apple', 'arctic', 'astronaut', 'baby', 'ball', 'balloon', 'beach', 'bear', 'beaver', 'bed', 'beetle',
                  'bench', 'bicycle', 'bird', 'boat', 'boat rafting', 'bobcat wildcat', 'book', 'bottle', 'branch', 'bridge',
                  'building', 'bull', 'bus', 'bush', 'butterfly', 'cabin', 'cactus', 'camel', 'camera', 'can', 'canine',

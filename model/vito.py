@@ -123,7 +123,8 @@ class ViTo(nn.Module):
             self.answer_head.vocab.extend(['code_'+str(i) for i in range(cfg.codebook_size)])
             assert vqgan_embed_path is not None, "dense prediction requires vqgan embedding"
             if os.path.exists(vqgan_embed_path):
-                self.code_embed = torch.load(vqgan_embed_path)
+                self.code_embed = torch.load(vqgan_embed_path, map_location='cpu')
+                print(f'load codebook from {vqgan_embed_path}')
             else:
                 self.code_embed = 0.1 * torch.randn([cfg.codebook_size, cfg.code_dim])
             self.code_embed = nn.Parameter(self.code_embed, requires_grad=False)
@@ -134,11 +135,7 @@ class ViTo(nn.Module):
         
         self.repre_embed = 0.1 * torch.randn([init_embed, cfg.roberta_dim])
         self.repre_embed = nn.Parameter(self.repre_embed, requires_grad=True)
-        # if 'dense' in cfg.task:
-        #     self.special_embed = torch.cat([self.repre_embed, self.code_embed], dim=0)
-        # else:
-        #     self.special_embed = self.repre_embed
-        
+
         self.vocab = self.answer_head.vocab
         self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
 

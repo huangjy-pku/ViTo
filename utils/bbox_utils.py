@@ -32,7 +32,7 @@ def seq2mask(pred_seq, vqgan, down_factor=16):
     for i, token in enumerate(pred_seq):
         if token == '__dense_begin__':
             break
-    if i > len(pred_seq)-code_len-2:
+    if i > len(pred_seq)-code_len-2 or pred_seq[i+1+code_len] != '__dense_end__':
         return None
     code = []
     for token in pred_seq[i+1: i+1+code_len]:
@@ -102,12 +102,12 @@ def vis_mask(mask, img, color=(255, 0, 0), modify=False, alpha=0.2):
         mask = interpolate(mask[None, None].float(), img_.shape[:2], mode="nearest")[0, 0]
         mask = mask.numpy()
     
-    if mask.dtype != bool:
-        mask = mask >= 0.5
+    if mask.dtype != np.uint8:
+        mask = np.clip(255*mask, 0, 255).astype(np.uint8)
     
     rr, cc = mask.nonzero()
     skdraw.set_color(img_, (rr, cc), color, alpha=alpha)   # area
-    return img_
+    return img_, mask
 
 
 def compute_iou(bbox1, bbox2, fmt='cxcywh', verbose=False):

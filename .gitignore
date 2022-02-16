@@ -3,6 +3,9 @@ data/anns/
 data/masks/
 .vscode/
 test.py
+*.jpg
+*.png
+*.npy
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

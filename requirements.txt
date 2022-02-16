@@ -40,7 +40,7 @@ mkl-service==2.4.0
 murmurhash==1.0.6
 networkx==2.6.3
 nltk==3.6.7
-numpy==1.21.4
+numpy
 oauthlib==3.1.1
 olefile
 omegaconf==2.1.1

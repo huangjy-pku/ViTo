@@ -96,11 +96,12 @@ def visualize(model, dataloader, cfg, step, subset, vqgan):
                     vis_bbox(bbox, vis_img, color=(0, 0, 255), modify=True, fmt='xyxy')
             elif t['task'] == 'dense':
                 gt = t['mask'].detach().squeeze(0).cpu().numpy().astype(bool)
-                vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
+                vis_img, _ = vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
                 mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
                 if mask is not None:
-                    vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
+                    vis_img, mask = vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
+                    vis_img = np.concatenate((vis_img, mask[..., None].repeat(3, -1)), axis=0)
 
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
             skio.imsave(os.path.join(vis_dir, vis_name), vis_img)
@@ -158,6 +159,7 @@ def train_worker(gpu, cfg):
     if cfg.training.freeze is True:
         freeze_pretr_params(model)
     
+    vqgan = None
     if gpu == 0 and 'dense' in cfg.task:
         vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
                         embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
@@ -195,7 +197,6 @@ def train_worker(gpu, cfg):
         sampler['train'] = torch.utils.data.distributed.DistributedSampler(
             datasets['train'], shuffle=True)
     else:
-        model = ViTo(cfg.model)
         model.cuda(cfg.gpu)
         sampler = {'train': None, 'val': None}
 

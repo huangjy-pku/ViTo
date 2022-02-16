@@ -57,7 +57,10 @@ def prepare_dataset(dataset, splits, output_dir, generate_mask=False):
             bboxs = refer.getRefBox(i)
             sentences = refs['sentences']
             image_urls = refer.loadImgs(image_ids=refs['image_id'])[0]
-            cat = cat_process(refs['category_id'])
+            if 'refcoco' in dataset:
+                cat = cat_process(refs['category_id'])
+            else:
+                cat = refs['category_id']
             image_urls = image_urls['file_name']
             if dataset == 'refclef' and image_urls in ['19579.jpg', '17975.jpg', '19575.jpg']:
                 continue

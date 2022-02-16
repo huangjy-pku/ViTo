@@ -21,7 +21,7 @@ from utils.html_writer import HtmlWriter
 from taming.vqgan import VQModel
 
 
-def visualize(model, dataloader, cfg, step, subset):
+def visualize(model, dataloader, cfg, step, subset, vqgan):
     device = f'cuda:{cfg.gpu}'
     vis_dir = os.path.join(
         cfg.exp_dir,
@@ -123,7 +123,6 @@ def main(cfg):
 
     print(OmegaConf.to_yaml(cfg))
 
-    global vqgan
     vqgan = None
     if 'dense' in cfg.task:
         vqgan = VQModel(ddconfig=cfg.vqgan.ddconfig, n_embed=cfg.vqgan.n_embed,
@@ -158,7 +157,7 @@ def main(cfg):
     with torch.no_grad():
         for subset in ['train', 'val']:
             print(f'Visualizing {subset} ...')
-            visualize(model, dataloaders[subset], cfg, 0, subset)
+            visualize(model, dataloaders[subset], cfg, 0, subset, vqgan)
     
 
 if __name__=='__main__':
