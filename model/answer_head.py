@@ -24,12 +24,14 @@ class AnswerHead(nn.Module):
         self.fixed_embed = nn.Parameter(vocab_embed, requires_grad=False)
         self.classifier_transform = classifier_transform
 
-    def forward(self, answer_embed, joint_embed):
+    def forward(self, answer_embed, joint_embed, preserve_feature=False):
         """
         answer_embed: [batch_size, num_l_tokens, hidden_dim]
         joint_embed: [num_vocab, roberta_dim]
         """
         answer_embed = self.classifier_transform(answer_embed)   # [batch_size, num_l_tokens, roberta_dim]
+        if preserve_feature:
+            return answer_embed
         # compute logits by inner product between prediction and vocab candidates
         return torch.matmul(answer_embed, joint_embed.permute(1, 0))   # [batch_size, num_l_tokens, num_vocab]
 

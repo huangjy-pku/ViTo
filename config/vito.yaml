@@ -7,6 +7,7 @@ refexp_data: /mnt/data/jiangyong/refexp/data
 refexp_anno: /home/jiangyong/repo/vito/data/anns
 refexp_mask: /home/jiangyong/repo/vito/data/masks
 offline_root: ${output_dir}/offline_root
+refine_code: null
 
 gpu: 0
 num_nodes: 1
@@ -39,11 +40,14 @@ model:
   vocab_embed: ${output_dir}/vocab_embed.npy
   vqgan_embed: ${output_dir}/vqgan_embed.pth
   in_max_pos_len: 100
-  out_max_pos_len: 270
+  out_max_pos_len: 258   # len(dense_seq)+2 for naive mode
   answer_head: null
   roberta_dim: 768
   store_path: ${output_dir}/encoding_store
   task: ${task}
+  loss_type: ce
+  code_weight: ${output_dir}/code_weights.pt
+  refine_code: ${refine_code}
   encoder:
     hidden_dim: 256
     nheads: 8
@@ -118,6 +122,7 @@ training:
   batch_size: 128
   num_workers: 30
   augmentation: offline
+  naive_dense: True
   vis_step: 2000
   log_step: 10
   ckpt_step: 2000

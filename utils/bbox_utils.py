@@ -25,16 +25,20 @@ def seq2bbox(pred_seq, num_bins=200):
     return np.array(bbox)
 
 
-def seq2mask(pred_seq, vqgan, down_factor=16):
+def seq2mask(pred_seq, vqgan, down_factor=16, naive=False):
     side = int(256 / down_factor)
     code_len = side ** 2
+    code=[]
     
-    for i, token in enumerate(pred_seq):
-        if token == '__dense_begin__':
-            break
-    if i > len(pred_seq)-code_len-2 or pred_seq[i+1+code_len] != '__dense_end__':
-        return None
-    code = []
+    if naive:
+        i = -1
+    else:
+        for i, token in enumerate(pred_seq):
+            if token == '__dense_begin__':
+                break
+        if i > len(pred_seq)-code_len-2 or pred_seq[i+1+code_len] != '__dense_end__':
+            return None
+
     for token in pred_seq[i+1: i+1+code_len]:
         if 'code_' in token:
             code.append(int(token[5:]))

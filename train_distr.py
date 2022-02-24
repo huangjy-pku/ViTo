@@ -98,7 +98,7 @@ def visualize(model, dataloader, cfg, step, subset, vqgan):
                 gt = t['mask'].detach().squeeze(0).cpu().numpy().astype(bool)
                 vis_img, _ = vis_mask(gt, vis_img, color=(0, 255, 0), modify=True)
 
-                mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor)
+                mask = seq2mask(pred_seqs[i], vqgan, cfg.vqgan.downsample_factor, naive=cfg.training.naive_dense)
                 if mask is not None:
                     vis_img, mask = vis_mask(mask, vis_img, color=(0, 0, 255), modify=True)
                     vis_img = np.concatenate((vis_img, mask[..., None].repeat(3, -1)), axis=0)
@@ -165,6 +165,10 @@ def train_worker(gpu, cfg):
                         embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
         vqgan.to(cfg.vqgan.device)
         vqgan.eval()
+        if cfg.refine_code is not None:
+            cdbk = torch.load(cfg.refine_code, map_location='cpu')
+            vqgan.quantize.embedding.weight.data = torch.from_numpy(cdbk['embed']).to(vqgan.device)
+            print(f'update VQGAN embedding from {cfg.refine_code}')
 
     if cfg.multiprocessing_distributed:
         cfg.rank = cfg.rank * cfg.ngpus_per_node + cfg.gpu
@@ -312,7 +316,7 @@ def train_worker(gpu, cfg):
             imgs = imgs.to(torch.device(gpu))
             for t in targets:
                 for k, v in t.items():
-                    if not isinstance(v, str):
+                    if v is not None and not isinstance(v, str):
                         t[k] = v.cuda(device)
             
             model.train()
@@ -450,6 +454,10 @@ def main(cfg):
     if cfg.training.freeze:
         cfg.training.batch_size = cfg.training.frozen_batch_size
         cfg.batch_size = cfg.training.frozen_batch_size
+    
+    if cfg.model.refine_code is not None:
+        cdbk = torch.load(cfg.model.refine_code, map_location='cpu')
+        cfg.vqgan.n_embed = cdbk['size']
 
     if cfg.multiprocessing_distributed:
         cfg.world_size = cfg.ngpus_per_node * cfg.num_nodes

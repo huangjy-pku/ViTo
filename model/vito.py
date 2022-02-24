@@ -7,7 +7,7 @@ import os
 from .backbone import build_backbone
 from .roberta import RoBERTa
 from .answer_head import build_answer_head
-from .loss import SequenceModelingLoss
+from .loss import SequenceModelingLoss, CosSimLoss
 from utils.misc import nested_tensor_from_tensor_list
 from .deformable_encoder import build_deforamble_encoder
 
@@ -91,7 +91,17 @@ class ViTo(nn.Module):
             cfg.decoder.hidden_dim)
         self.answer_input_embeddings = AnswerInputEmbedding(answer_input_transform)
 
-        self.criterion = SequenceModelingLoss(self.cfg.loss)
+        if cfg.loss_type == 'ce':
+            self.criterion = SequenceModelingLoss(cfg.loss)
+        elif cfg.loss_type == 'weighted_ce':
+            weight = torch.ones(len(self.vocab))
+            code_weight = torch.load(cfg.code_weight)
+            weight[-len(code_weight):] = code_weight
+            self.criterion = SequenceModelingLoss(cfg.loss, weight)
+        elif cfg.loss_type == 'cos':
+            self.criterion = CosSimLoss(cfg.loss)
+        else:
+            raise Exception("unknown loss type")
 
         self.pos_enc = nn.Parameter(positionalencoding1d(
             cfg.decoder.hidden_dim, cfg.out_max_pos_len))   # for sequence in decoder
@@ -123,8 +133,13 @@ class ViTo(nn.Module):
             self.answer_head.vocab.extend(['code_'+str(i) for i in range(cfg.codebook_size)])
             assert vqgan_embed_path is not None, "dense prediction requires vqgan embedding"
             if os.path.exists(vqgan_embed_path):
-                self.code_embed = torch.load(vqgan_embed_path, map_location='cpu')
-                print(f'load codebook from {vqgan_embed_path}')
+                if cfg.refine_code is None:
+                    self.code_embed = torch.load(vqgan_embed_path, map_location='cpu')
+                    print(f'load codebook from {vqgan_embed_path}')
+                else:
+                    self.code_embed = torch.load(cfg.refine_code, map_location='cpu')['embed']
+                    self.code_embed = torch.from_numpy(self.code_embed)
+                    print(f'load codebook from {cfg.refine_code}')
             else:
                 self.code_embed = 0.1 * torch.randn([cfg.codebook_size, cfg.code_dim])
             self.code_embed = nn.Parameter(self.code_embed, requires_grad=False)
@@ -232,6 +247,12 @@ class ViTo(nn.Module):
             self.joint_embed = torch.cat([self.answer_head.fixed_embed, self.repre_embed.to(self.device)], dim=0)
         # update joint_embed per forwarding
 
+        if self.cfg.loss_type == 'cos' and targets is not None:
+            # train with cosine similarity loss
+            output_features = self.decode(answer_token_ids, memory, preserve_feature=True)
+            # [batch_size, num_l_tokens, roberta_dim]
+            return self.criterion(output_features, targets, self.joint_embed)
+
         output_logits = self.decode(answer_token_ids, memory)
         # [batch_size, num_l_tokens, num_vocab]
 
@@ -301,7 +322,7 @@ class ViTo(nn.Module):
         
         return query_encodings, mask, pos_enc
     
-    def decode(self, answer_token_ids, memory):
+    def decode(self, answer_token_ids, memory, preserve_feature=False):
         if answer_token_ids is None:
             # inference
             B = memory.shape[0]
@@ -337,7 +358,7 @@ class ViTo(nn.Module):
             target = self.answer_input_embeddings(answer_token_ids[:, :-1], self.joint_embed)
             # [batch_size, num_l_tokens, hidden_dim]
             # ignore output from __stop__ token
-            output_logits = self.decode_text(target, memory)
+            output_logits = self.decode_text(target, memory, preserve_feature)
         
         return output_logits
 
@@ -393,7 +414,7 @@ class ViTo(nn.Module):
         return self.answer_input_embedings(
             torch.LongTensor([self.word_to_idx['__cls__']]).cuda(self.device))[0]
 
-    def decode_text(self, target, memory):
+    def decode_text(self, target, memory, preserve_feature=False):
         Tt = target.shape[1]
         if self.cfg.decoder.pos_enc is True:
             target = target + self.pos_enc[:, :Tt]
@@ -407,4 +428,4 @@ class ViTo(nn.Module):
         to_decode = self.decoder(target, memory, tgt_mask).permute(1, 0, 2)
         # [batch_size, num_l_tokens, hidden_dim]
 
-        return self.answer_head(to_decode, self.joint_embed)   # [batch_size, num_l_tokens, num_vocab]
+        return self.answer_head(to_decode, self.joint_embed, preserve_feature)   # [batch_size, num_l_tokens, num_vocab]

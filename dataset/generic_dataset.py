@@ -68,7 +68,7 @@ def bbox_process(bbox, num_bins, cat, cat_type):
         target_seq = f'{coco_category[cat]} '
     return target_seq + f'__bbox_begin__ pos_{str(token_x1)} pos_{str(token_y1)} pos_{str(token_x2)} pos_{str(token_y2)} __bbox_end__'
 
-def dense_process(mask_ori, vqgan, cat, cat_type, noseq=False):
+def dense_process(mask_ori, vqgan, cat, cat_type, noseq=False, naive=False):
     """
     from dense binary mask to token sequence
     original mask: tensor at shape [1, H, W], int value in {0.0, 1.0}
@@ -101,15 +101,20 @@ def dense_process(mask_ori, vqgan, cat, cat_type, noseq=False):
         encoding_indices = vqgan.encode(mask_vqgan)[-1][-1]
     # length 8x8, value in [0, 1023]
 
-    if cat_type == 'refclef':
-        target_seq = f'{clef_category[cat]} '
-    elif cat_type == 'refcoco':
-        target_seq = f'{coco_category[cat]} '
+    if naive:
+        target_seq = ''
+    else:
+        if cat_type == 'refclef':
+            target_seq = f'{clef_category[cat]} '
+        elif cat_type == 'refcoco':
+            target_seq = f'{coco_category[cat]} '
+        target_seq += '__dense_begin__ '
     
-    target_seq += '__dense_begin__'
     for idx in encoding_indices:
-        target_seq += f' code_{str(idx.item())}'
-    target_seq += ' __dense_end__'
+        target_seq += f'code_{str(idx.item())} '
+    
+    if not naive:
+        target_seq += '__dense_end__'
 
     return target_seq, mask, crop_flag
 

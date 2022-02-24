@@ -12,7 +12,7 @@ from dataset.generic_dataset import dense_process, GenericDataset
 from taming.vqgan import VQModel
 
 
-def make_aug_offline(dataset, dst_dir, vqgan):
+def make_aug_offline(dataset, dst_dir, vqgan, naive):
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
     for i in tqdm(range(len(dataset))):
@@ -31,9 +31,9 @@ def make_aug_offline(dataset, dst_dir, vqgan):
         # query = 'segment ' + target['query'] + ' with mask.'
         # mask = target['masks']
         if 'refclef' in dataset.dataset_name:
-            target_seq, mask, crop_flag = dense_process(mask0, vqgan, sample['cat'], 'refclef')
+            target_seq, mask, crop_flag = dense_process(mask0, vqgan, sample['cat'], 'refclef', naive=naive)
         elif 'refcoco' in dataset.dataset_name:
-            target_seq, mask, crop_flag = dense_process(mask0, vqgan, sample['cat'], 'refcoco')
+            target_seq, mask, crop_flag = dense_process(mask0, vqgan, sample['cat'], 'refcoco', naive=naive)
         # img = img_refine_square(img, crop_flag)
         store_dict = {
             'crop_flag': crop_flag,
@@ -53,6 +53,10 @@ def main(cfg):
                     embed_dim=cfg.vqgan.embed_dim, ckpt_path=cfg.vqgan.ckpt)
     vqgan.to(cfg.vqgan.device)
     vqgan.eval()
+    if cfg.refine_code is not None:
+        cdbk = torch.load(cfg.refine_code, map_location='cpu')
+        vqgan.quantize.embedding.weight.data = torch.from_numpy(cdbk['embed']).to(vqgan.device)
+        print(f'load codebook from {cfg.refine_code}')
 
     datasets = ['refclef', 'refcoco', 'refcoco+', 'refcocog']
 
@@ -60,7 +64,7 @@ def main(cfg):
         info = cfg.dataset[data_type]
         dataset = GenericDataset(f'{data_type}_dense', info, 'train', 'dense',
                                  num_bins=200, vqgan=vqgan, aug='online')
-        make_aug_offline(dataset, offline_root, vqgan)
+        make_aug_offline(dataset, offline_root, vqgan, naive=cfg.training.naive_dense)
 
 
 if __name__ == '__main__':

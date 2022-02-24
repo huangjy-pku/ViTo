@@ -50,7 +50,7 @@ def refexp_metrics(model, dataloader, cfg, vqgan):
                 pred_bbox = seq2bbox(pred_seqs[b], num_bins=cfg.model.num_bins)
                 grp.create_dataset('bbox', dtype='f', data=pred_bbox)
             elif task == 'dense':
-                pred_mask = seq2mask(pred_seqs[b], vqgan, down_factor=cfg.vqgan.downsample_factor)
+                pred_mask = seq2mask(pred_seqs[b], vqgan, down_factor=cfg.vqgan.downsample_factor, naive=cfg.training.naive_dense)
                 grp.create_dataset('mask', dtype='f', data=pred_mask)
                 
             total += 1
