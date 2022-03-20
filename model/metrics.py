@@ -5,13 +5,11 @@ import numpy as np
 import torch
 
 import utils.io as io
-from utils.bbox_utils import seq2bbox, seq2mask
-from .evaluator import RefexpEvaluator
+from utils.bbox_utils import seq2bbox, seq2dense
+from .evaluator import Evaluator
 
 
-def refexp_metrics(model, dataloader, cfg, vqgan):
-    device = f'cuda:{cfg.gpu}'
-
+def refexp_metrics(model, dataloader, cfg):
     model.eval()
     
     total = 0
@@ -23,35 +21,36 @@ def refexp_metrics(model, dataloader, cfg, vqgan):
     pred_h5py = h5py.File(pred_h5py_path, 'w')
 
     for data in tqdm(dataloader):
-        imgs, queries, targets, fnames = data
-        imgs = imgs.to(torch.device(device))
-        for t in targets:
-            for k, v in t.items():
-                if v is not None and not isinstance(v, str):
-                    t[k] = v.cuda(device)
+        imgs, queries, targets = data
 
-        outputs_logits = model(imgs, queries, answer_token_ids=None, fnames=fnames)
+        buffer_names = [target['buffer_name'] for target in targets]
+        outputs_logits = model(buffer_names, train=False)
 
         topk = torch.topk(outputs_logits, k=1, dim=-1)
-        topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, num_l_tokens]
+        topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, tgt_len]
         pred_seqs = model.token_ids_to_words(topk_ids)
 
         B = len(targets)
         for b in range(B):
-            if total >= cfg.training.num_val_samples:
+            if total >= cfg.eval.num_val_samples:
                 end_eval = True
                 break
             
-            fname = fnames[b]
+            fname = targets[b]['buffer_name']
             grp = pred_h5py.create_group(fname)
             task = targets[b]['task']
 
             if task == 'bbox':
                 pred_bbox = seq2bbox(pred_seqs[b], num_bins=cfg.model.num_bins)
                 grp.create_dataset('bbox', dtype='f', data=pred_bbox)
-            elif task == 'dense':
-                pred_mask = seq2mask(pred_seqs[b], vqgan, down_factor=cfg.vqgan.downsample_factor, naive=cfg.training.naive_dense)
+            elif task == 'mask':
+                pred_mask = seq2dense(pred_seqs[b], model, 'mask', down_factor=cfg.model.target_vqgan.downsample_factor)
                 grp.create_dataset('mask', dtype='f', data=pred_mask)
+            elif task == 'depth':
+                pred_depth = seq2dense(pred_seqs[b], model, 'depth', down_factor=cfg.model.target_vqgan.downsample_factor)
+                grp.create_dataset('depth', dtype='f', data=pred_depth)
+            
+            grp.create_dataset('gt', dtype='f', data=targets[b]['target'])
                 
             total += 1
         
@@ -61,8 +60,8 @@ def refexp_metrics(model, dataloader, cfg, vqgan):
     pred_h5py.close()
 
     pred_h5py = h5py.File(pred_h5py_path, 'r')
-    refexp_evaluator = RefexpEvaluator(dataloader, pred_h5py)
-    metrics = refexp_evaluator.evaluate()
+    evaluator = Evaluator(pred_h5py)
+    metrics = evaluator.evaluate()
     pred_h5py.close()
     os.remove(pred_h5py_path)
     return metrics

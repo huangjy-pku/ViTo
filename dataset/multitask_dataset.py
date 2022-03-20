@@ -1,23 +1,20 @@
 import hydra
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-
-from utils.misc import collate_fn as detr_collate_fn
-from .generic_dataset import GenericDataset
-from taming.vqgan import VQModel
+from .generic_dataset import GenericDataset, collate_fn
 
 
 class MultitaskDataset(Dataset):
-    def __init__(self, datasets, subset, tasks=['bbox'], num_bins=200, vqgan=None, aug='online'):
+    def __init__(self, datasets, subset, tasks):
         super().__init__()
         self.datasets = {}
         self.sample_l = []   # lower index
         self.sample_u = []   # upper index
-        for dataset, info in datasets.items():
-            for task in tasks:
+        for task in tasks:
+            for dataset, info in datasets[task].items():
                 dataset_name = f'{dataset}_{task}'
                 self.datasets[dataset_name] = GenericDataset(
-                    dataset_name, info, subset, task, num_bins, vqgan, aug
+                    dataset_name, info, subset, task
                 )
                 L = len(self.datasets[dataset_name])
                 if len(self.sample_l) == 0:
@@ -36,7 +33,6 @@ class MultitaskDataset(Dataset):
         N = 0
         for dataset_name, dataset in self.datasets.items():
             N += len(dataset)
-        
         return N
 
     def __getitem__(self, i):
@@ -46,7 +42,7 @@ class MultitaskDataset(Dataset):
         return self.datasets[dataset_name][i-self.sample_l[dataset_idx]]
 
     def get_collate_fn(self):
-        return detr_collate_fn
+        return collate_fn
                 
     def get_dataloader(self, **kwargs):
         collate_fn = self.get_collate_fn()
@@ -55,7 +51,7 @@ class MultitaskDataset(Dataset):
 
 @hydra.main(config_path='../config', config_name="vito.yaml")
 def main(cfg):
-    dataset = MultitaskDataset(cfg.learning.bbox.dataset, 'val')
+    dataset = MultitaskDataset(cfg.dataset, 'val', ['bbox, mask'])
     dataloader = dataset.get_dataloader(batch_size=8, shuffle=False)
     for data in dataloader:
         pass

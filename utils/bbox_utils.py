@@ -10,13 +10,11 @@ def seq2bbox(pred_seq, num_bins=200):
     return bbox or None
     """
 
-    for i, token in enumerate(pred_seq):
-        if token == '__bbox_begin__':
-            break
-    if i > len(pred_seq)-6:
+    if pred_seq[0] != '__bbox__':
         return None
+
     bbox = []
-    for token in pred_seq[i+1: i+5]:
+    for token in pred_seq[1:]:
         if 'pos_' in token:
             bin_id = int(token[4:])
             bbox.append((bin_id+0.5)/num_bins)
@@ -25,34 +23,30 @@ def seq2bbox(pred_seq, num_bins=200):
     return np.array(bbox)
 
 
-def seq2mask(pred_seq, vqgan, down_factor=16, naive=False):
-    side = int(256 / down_factor)
-    code_len = side ** 2
-    code=[]
+def seq2dense(pred_seq, model, task, down_factor=16):
+    if pred_seq[0] != f'__{task}__':
+        return None
     
-    if naive:
-        i = -1
-    else:
-        for i, token in enumerate(pred_seq):
-            if token == '__dense_begin__':
-                break
-        if i > len(pred_seq)-code_len-2 or pred_seq[i+1+code_len] != '__dense_end__':
-            return None
+    side = int(256 / down_factor)
+    code=[]
 
-    for token in pred_seq[i+1: i+1+code_len]:
-        if 'code_' in token:
-            code.append(int(token[5:]))
+    for token in pred_seq[1:]:
+        if 'dense_' in token:
+            code_id = int(token[6:])
+            code.append(code_id)
         else:
             return None
     with torch.no_grad():
-        pred_mask = vqgan.decode_code(torch.LongTensor(code).to(vqgan.device),
+        pred_dense = model.tgt_vqgan.decode_code(torch.LongTensor(code).to(model.device),
                                       shape=(1, side, side, -1))
     # vqgan reconstruction shape at [1, 3, 256, 256], value in [-1, 1]
-    pred_mask = pred_mask.squeeze().detach().cpu().numpy()
-    pred_mask = (pred_mask+1) / 2
-    # ITU-R 601-2 luma transform: L = R * 0.299 + G * 0.587 + B * 0.114
-    pred_mask = np.sum([[[0.299]], [[0.587]], [[0.114]]]*pred_mask, axis=0)
-    return pred_mask
+    pred_dense = pred_dense.squeeze().detach().cpu().numpy()
+    pred_dense = (pred_dense+1) / 2
+    if pred_dense.ndim == 3:
+        # squeeze 3 channels
+        # ITU-R 601-2 luma transform: L = R * 0.299 + G * 0.587 + B * 0.114
+        pred_dense = np.sum([[[0.299]], [[0.587]], [[0.114]]]*pred_dense, axis=0)
+    return pred_dense
 
 
 def vis_bbox(bbox, img, color=(255, 0, 0), modify=False, fmt='ncxcywh'):

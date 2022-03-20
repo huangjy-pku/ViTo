@@ -4,14 +4,13 @@ exp_dir: ${output_dir}/${exp_name}
 tb_dir: ${exp_dir}/tb_logs
 ckpt_dir: ${exp_dir}/ckpts
 refexp_data: /mnt/data/jiangyong/refexp/data
-refexp_anno: /home/jiangyong/repo/vito/data/anns
-refexp_mask: /home/jiangyong/repo/vito/data/masks
-offline_root: ${output_dir}/offline_root
-refine_code: null
+refexp_anno: /home/jiangyong/repo/vito2/data/anns
+refexp_mask: /home/jiangyong/repo/vito2/data/masks
+taskonomy: /mnt/data/jiangyong/taskonomy
 
 gpu: 0
 num_nodes: 1
-ngpus_per_node: 8
+ngpus_per_node: 4
 world_size: null   # computed dynamically as num_nodes * ngpus_per_node
 rank: 0
 workers: ${training.num_workers}
@@ -25,120 +24,106 @@ hydra:
     dir: ${output_dir}/${exp_name}
 
 model:
-  pretr_weights: null
+  hidden_dim: 256
   num_bins: 200
-  num_feature_levels: 1
-  extra_conv: False
-  codebook_size: ${vqgan.n_embed}
-  code_dim: ${vqgan.embed_dim}
-  backbone: resnet50
-  hidden_dim: ${model.encoder.hidden_dim}
-  position_embedding: sine
-  lr_backbone: ${training.lr_backbone}
-  dilation: False
-  vocab: ${output_dir}/vocab.json
-  vocab_embed: ${output_dir}/vocab_embed.npy
-  vqgan_embed: ${output_dir}/vqgan_embed.pth
-  in_max_pos_len: 100
-  out_max_pos_len: 258   # len(dense_seq)+2 for naive mode
-  answer_head: null
-  roberta_dim: 768
-  store_path: ${output_dir}/encoding_store
+  txt_buffer: ${output_dir}/text_buffer
+  img_buffer: ${output_dir}/image_buffer
+  tgt_buffer: ${output_dir}/target_buffer
   task: ${task}
-  loss_type: ce
-  code_weight: ${output_dir}/code_weights.pt
-  refine_code: ${refine_code}
-  encoder:
+  refine_code: null   # for codebook of target encoder
+  text_filter:
+    roberta_dim: 768
     hidden_dim: 256
-    nheads: 8
-    num_encoder_layers: 6
-    num_feature_levels: ${model.num_feature_levels}
-    deformable: False
-    extra_conv: ${model.extra_conv}
-    enc_n_points: 4
     dropout: 0.1
-    dim_feedforward: 2048
-    activation: relu
+    nheads: 8
+    num_layers: 2
+  image_vqgan:
+    embed_dim: 256
+    n_embed: 1024
+    downsample_factor: 16
+    ckpt: ${output_dir}/image_vqgan.ckpt
+    ddconfig:
+      double_z: False
+      z_channels: 256
+      resolution: 256
+      in_channels: 3
+      out_ch: 3
+      ch: 128
+      ch_mult: [1,1,2,2,4]   # num_down = len(ch_mult)-1
+      num_res_blocks: 2
+      attn_resolutions: [16]
+      dropout: 0.0
+  target_vqgan:
+    embed_dim: 256
+    n_embed: 1024
+    downsample_factor: 16
+    ckpt: ${output_dir}/target_vqgan.ckpt
+    ddconfig:
+      double_z: False
+      z_channels: 256
+      resolution: 256
+      in_channels: 1
+      out_ch: 1
+      ch: 64
+      ch_mult: [1,1,2,2,4]   # num_down = len(ch_mult)-1
+      num_res_blocks: 2
+      attn_resolutions: [16]
+      dropout: 0.0
   decoder:
-    hidden_dim: ${model.encoder.hidden_dim}
-    dropout: ${model.encoder.dropout}
-    nheads: ${model.encoder.nheads}
-    pos_enc: False
-    num_layers: 6
-    max_answer_len: ${model.out_max_pos_len}
-  loss: ${loss}
-
-vqgan:
-  embed_dim: 256
-  n_embed: 1024
-  downsample_factor: 16
-  device: cuda:${gpu}
-  ckpt: ${output_dir}/vqgan.ckpt
-  ddconfig:
-    double_z: False
-    z_channels: 256
-    resolution: 256
-    in_channels: 3
-    out_ch: 3
-    ch: 128
-    ch_mult: [1,1,2,2,4]   # num_down = len(ch_mult)-1
-    num_res_blocks: 2
-    attn_resolutions: [16]
-    dropout: 0.0
-
-loss:
-  pad_idx: 7969
+    block_size: 516   # 3+256+1+256
+    n_layer: 16
+    n_head: 8
+    n_embd: 256
 
 task: null
+prepare: null
 
 dataset:
-  refclef:
-    img_dir: ${refexp_data}/images/saiapr_tc-12
-    anno_dir: ${refexp_anno}/refclef
-    mask_dir: ${refexp_mask}/refclef
-    offline_root: ${offline_root}
-  refcoco:
-    img_dir: ${refexp_data}/images/mscoco/images/train2014
-    anno_dir: ${refexp_anno}/refcoco
-    mask_dir: ${refexp_mask}/refcoco
-    offline_root: ${offline_root}
-  refcoco+:
-    img_dir: ${refexp_data}/images/mscoco/images/train2014
-    anno_dir: ${refexp_anno}/refcoco+
-    mask_dir: ${refexp_mask}/refcoco+
-    offline_root: ${offline_root}
-  refcocog:
-    img_dir: ${refexp_data}/images/mscoco/images/train2014
-    anno_dir: ${refexp_anno}/refcocog
-    mask_dir: ${refexp_mask}/refcocog
-    offline_root: ${offline_root}
+  bbox:
+    refclef:
+      img_dir: ${refexp_data}/images/saiapr_tc-12
+      anno_dir: ${refexp_anno}/refclef
+      mask_dir: ${refexp_mask}/refclef
+    refcoco:
+      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      anno_dir: ${refexp_anno}/refcoco
+      mask_dir: ${refexp_mask}/refcoco
+    refcoco+:
+      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      anno_dir: ${refexp_anno}/refcoco+
+      mask_dir: ${refexp_mask}/refcoco+
+    refcocog:
+      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      anno_dir: ${refexp_anno}/refcocog
+      mask_dir: ${refexp_mask}/refcocog
+  mask: ${dataset.bbox}
+  depth:
+    taskonomy:
+      img_dir: ${taskonomy}/rgb
+      anno_dir: ${refexp_anno}/taskonomy
+      depth_dir: ${taskonomy}/depth_zbuffer
 
 training:
   ckpt: ${exp_dir}/ckpts/model.pth
-  freeze: False   # freeze backbone
-  frozen_epochs: 0
-  frozen_batch_size: ${training.batch_size}
   num_epochs: 60
-  batch_size: 128
+  batch_size: 256
   num_workers: 30
-  augmentation: offline
-  naive_dense: True
   vis_step: 2000
   log_step: 10
   ckpt_step: 2000
-  lr: 1e-4
-  lr_backbone: 1e-5
-  weight_decay: 1e-4
+  lr: 2e-4
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
   lr_warmup: True
   lr_linear_decay: True
-  lr_warmup_fraction: 0.1
-  clip_max_norm: 0.1
+  lr_warmup_fraction: 0.01
+  clip_max_norm: 1.0
   run_vis_at_launch: True
   num_vis_samples: 15
-  run_eval_at_launch: True
-  num_val_samples: 100
 
 eval:
   ckpt: ${exp_dir}/ckpts/model.pth
   batch_size: 64
   num_workers: 20
+  run_eval_at_launch: True
+  num_val_samples: 100

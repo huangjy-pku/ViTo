@@ -4,7 +4,7 @@ from transformers import RobertaTokenizer, RobertaModel
 class RoBERTa(nn.Module):
     def __init__(self, cfg=None):
         super().__init__()
-        self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base') 
+        self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
         self.model = RobertaModel.from_pretrained('roberta-base')
 
     def forward(self, sentences, device=None):
@@ -23,7 +23,12 @@ class RoBERTa(nn.Module):
 
 
 if __name__=='__main__':
-    roberta = RoBERTa(None).cuda()
+    roberta = RoBERTa(None).to('cuda:2')
     # seq_pair = roberta.tokenizer.encode("__bbox_begin__ pos_1 pos_10 pos_20 pos_30 __bbox_end__")
     # print(roberta.tokenizer.decode(seq_pair))
-    print(roberta(['How do you do?','I am fine thank you.']))
+    # print(roberta(['How do you do?','I am fine thank you.']))
+    print(roberta([
+        'locate a blue turtle-like pokemon with round head with box',
+        'locate "a blue turtle-like pokemon with round head" with box',
+        'locate " a blue turtle-like pokemon with round head " with box'
+    ], device='cuda:2'))
