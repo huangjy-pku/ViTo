@@ -10,7 +10,7 @@ taskonomy: /mnt/data/jiangyong/taskonomy
 
 gpu: 0
 num_nodes: 1
-ngpus_per_node: 4
+ngpus_per_node: 8
 world_size: null   # computed dynamically as num_nodes * ngpus_per_node
 rank: 0
 workers: ${training.num_workers}
@@ -33,7 +33,7 @@ model:
   refine_code: null   # for codebook of target encoder
   text_filter:
     roberta_dim: 768
-    hidden_dim: 256
+    hidden_dim: ${model.decoder.n_embd}
     dropout: 0.1
     nheads: 8
     num_layers: 2
@@ -71,9 +71,9 @@ model:
       dropout: 0.0
   decoder:
     block_size: 516   # 3+256+1+256
-    n_layer: 16
-    n_head: 8
-    n_embd: 256
+    n_layer: 24
+    n_head: 16
+    n_embd: 1024
 
 task: null
 prepare: null
@@ -106,7 +106,7 @@ dataset:
 training:
   ckpt: ${exp_dir}/ckpts/model.pth
   num_epochs: 60
-  batch_size: 256
+  batch_size: 64
   num_workers: 30
   vis_step: 2000
   log_step: 10

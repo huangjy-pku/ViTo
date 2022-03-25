@@ -49,7 +49,7 @@ class ViTo(nn.Module):
 
         self.txt_proj = nn.Linear(cfg.text_filter.roberta_dim, cfg.text_filter.hidden_dim)
         # text sequence to 3 tokens: task, object, context respectively
-        self.task_query = nn.Embedding(3, cfg.hidden_dim)
+        self.task_query = nn.Embedding(3, cfg.decoder.n_embd)
         self.txt_filter = build_transformer_decoder(cfg.text_filter)
 
         self.vocab_expansion()
