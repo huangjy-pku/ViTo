@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
+from . import transforms as T
 from torchvision.transforms import functional as F
 import utils.io as io
 import random
@@ -14,6 +15,46 @@ bbox_postwords = ['with box', 'in rectangle']
 mask_prewords = ['segment', 'separate', 'split']
 mask_postwords = ['with mask', 'in mask']
 depth_queries = ['estimate depth map of the image', 'generate the depth estimation']
+
+
+def make_coco_transforms(image_set, high_resolution, cautious):
+    if high_resolution:
+        scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+        max_size = 1333
+        resize_before_crop = [400, 500, 600]
+        crop_size = 384
+    else:
+        scales = [256]
+        max_size = 384
+        resize_before_crop = [256, 288, 320]
+        crop_size = 224
+    
+    if image_set == "train":
+        horizontal = [T.RandomHorizontalFlip()]
+        return T.Compose(
+            horizontal
+            + [
+                T.RandomSelect(
+                    T.RandomResize(scales, max_size=max_size),
+                    T.Compose(
+                        [
+                            T.RandomResize(resize_before_crop),
+                            T.RandomSizeCrop(crop_size, max_size, respect_boxes=cautious),
+                            T.RandomResize(scales, max_size=max_size),
+                        ]
+                    ),
+                ),
+                T.ToTensor(),
+            ]
+        )
+
+    else:
+        return T.Compose(
+            [
+                T.RandomResize([scales[-1]], max_size=max_size),
+                T.ToTensor(),
+            ]
+        )
 
 
 def square_refine(img, target):
@@ -65,8 +106,6 @@ def square_refine(img, target):
             ], dim=0)
             crop_flag = torch.argmax(torch.sum(candidates, dim=(1,2,3)))
             target = candidates[crop_flag]
-            
-            target = target / torch.max(target)
         
         if crop_flag == 0:
             return F.crop(img, 0, 0, shorter, shorter), target
@@ -77,7 +116,7 @@ def square_refine(img, target):
 
 
 class GenericDataset(Dataset):
-    def __init__(self, dataset_name, info, subset, task):
+    def __init__(self, dataset_name, info, subset, task, online):
         super().__init__()
         self.dataset_name = dataset_name
         self.info = info
@@ -86,7 +125,13 @@ class GenericDataset(Dataset):
         self.samples = io.load_json_object(
             os.path.join(info['anno_dir'], f'{subset}.json')
         )
-        print(f'load {len(self.samples)} samples in {self.dataset_name}_{self.subset}')
+        self.online = online
+        print(f'load {len(self.samples)} samples in {self.dataset_name}_{self.subset} in {"online" if online else "offline"} mode')
+        if online:
+            if task == 'depth':
+                self.transform = make_coco_transforms(subset, high_resolution=False, cautious=False)
+            else:
+                self.transform = make_coco_transforms(subset, high_resolution=False, cautious=True)
     
     def __len__(self):
         return len(self.samples)
@@ -94,6 +139,10 @@ class GenericDataset(Dataset):
     def read_image(self, img_name):
         img = Image.open(os.path.join(self.info.img_dir, img_name)).convert("RGB")
         img = F.to_tensor(img)
+        return img
+    
+    def read_image_pil(self, img_name):
+        img = Image.open(os.path.join(self.info.img_dir, img_name)).convert("RGB")
         return img
 
     def get_mask(self, segment_id):
@@ -104,10 +153,29 @@ class GenericDataset(Dataset):
     def get_depth(self, depth_name):
         depth = Image.open(os.path.join(self.info.depth_dir, depth_name))
         depth = F.to_tensor(depth)
-        return depth / torch.max(depth)
+        return depth
+
+    def depth_process(self, depth, mode):
+        if 'taskonomy' in self.dataset_name:
+            valid_mask = (depth < 40000).squeeze()
+            if mode == 'log':
+                # taskonomy, 2018
+                depth = torch.log2(1.0+depth) / 16
+            elif mode == 'linear':
+                # X-TC, 2020
+                depth = torch.clip(depth/8000, 0, 1)
+            else:
+                raise NotImplementedError
+            return depth, valid_mask
+        else:
+            raise NotImplementedError
 
     def __getitem__(self, i):
         sample = self.samples[i]
+
+        if self.online:
+            return self.get_online(sample, i)
+        
         img = self.read_image(sample['img_name'])
 
         if self.task == 'bbox':
@@ -124,13 +192,62 @@ class GenericDataset(Dataset):
 
         img, target = square_refine(img, target)
 
+        if self.task == 'depth':
+            target = self.depth_process(target, mode='linear')
+
         targets = {
             'task': self.task,
             'target': target,
+            'online': False,
             'buffer_name': self.get_encoding_fname(i)
         }
         return img, query, targets
-                
+
+    def get_online(self, sample, i):
+        img = self.read_image_pil(sample['img_name'])
+
+        if self.task == 'bbox':
+            query = f'{random.choice(bbox_prewords)} "'+sample['sentences'][0]['sent']+f'" {random.choice(bbox_postwords)}'
+            target = {
+                'query': query,
+                'boxes': torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4)
+            }
+            img, target = self.transform(img, target)
+            
+            query = target['query']
+            target = target['boxes']
+        else:
+            if self.task == 'mask':
+                query = f'{random.choice(mask_prewords)} "'+sample['sentences'][0]['sent']+f'" {random.choice(mask_postwords)}'
+                target = {
+                    'query': query,
+                    'boxes': torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4),
+                    'masks': self.get_mask(sample['segment_id'])
+                }
+            else:
+                query = random.choice(depth_queries)
+                target = {
+                    'query': query,
+                    'masks': self.get_depth(sample['depth_name'])   # fake mask
+                }
+            img, target = self.transform(img, target)
+
+            query = target['query']
+            target = target['masks']
+            
+        img, target = square_refine(img, target)
+
+        if self.task == 'depth':
+            target = self.depth_process(target, mode='linear')
+
+        targets = {
+            'task': self.task,
+            'target': target,
+            'online': True,
+            'buffer_name': self.get_encoding_fname(i)
+        }
+        return img, query, targets
+
     def get_dataloader(self, **kwargs):
         return DataLoader(self, collate_fn=collate_fn, **kwargs)
 
@@ -149,7 +266,7 @@ def main(cfg):
     dataloader = dataset.get_dataloader(batch_size=8, shuffle=False)
     for data in dataloader:
         imgs, queries, targets = data
-        depth = targets[0]['target']
+        depth = targets[0]['target'][0]
         print(depth.max(), depth.min())
 
 

@@ -69,7 +69,10 @@ def make_offline(dataloader, task, dst_dir, mod, model, device):
                 if targets[0]['task'] == 'bbox':
                     tgt_seq = bbox_process(targets[0]['target'], num_bins)
                 else:
-                    tgt = 2*targets[0]['target'] - 1
+                    tgt = targets[0]['target']
+                    if isinstance(tgt, tuple):
+                        tgt = tgt[0]
+                    tgt = 2*tgt - 1
                     tgt = tgt.unsqueeze(0).to(device)
                     with torch.no_grad():
                         encoding_indices = model.encode(tgt)[-1][-1]

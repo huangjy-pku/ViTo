@@ -15,7 +15,7 @@ from tqdm import tqdm
 from warmup_scheduler import GradualWarmupScheduler
 from pytorch_transformers.optimization import WarmupLinearSchedule
 
-from model.cond_vito import ViTo
+from model.cond_vito import ViTo, encode_txt, encode_img, encode_tgt
 from model.metrics import refexp_metrics
 from dataset.generic_dataset import collate_fn
 from dataset.multitask_dataset import MultitaskDataset
@@ -53,8 +53,22 @@ def visualize(model, dataloader, cfg, step, subset):
     for data in dataloader:
         imgs, queries, targets = data
 
-        buffer_names = [target['buffer_name'] for target in targets]
-        outputs_logits = model(buffer_names, train=False)
+        if targets[0]['online']:
+            txt_seq, txt_pad_mask = encode_txt(model.roberta, queries, model.device)
+            img_seq = encode_img(model.img_vqgan, imgs, model.device)
+            tgts = []
+            for target in targets:
+                tgt = target['target']
+                if isinstance(tgt, tuple):
+                    tgt = tgt[0]
+                tgts.append(tgt)
+            tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)
+            outputs_logits = model(buffer_names=None, seq_tuple=(
+                txt_seq, txt_pad_mask, img_seq, tgt_seq
+            ), train=False)
+        else:
+            buffer_names = [target['buffer_name'] for target in targets]
+            outputs_logits = model(buffer_names, seq_tuple=None, train=False)
 
         # visualize predictions
         pred_prob = outputs_logits.softmax(-1)
@@ -95,7 +109,10 @@ def visualize(model, dataloader, cfg, step, subset):
                 else:
                     vis_img = np.concatenate([gt[..., None].repeat(3, -1), vis_img], axis=0)
             elif t['task'] == 'depth':
-                gt = t['target'].detach().squeeze(0).cpu().numpy()
+                gt = t['target']
+                if isinstance(gt, tuple):
+                    gt = gt[0]
+                gt = gt.detach().squeeze(0).cpu().numpy()
                 if gt.dtype != np.uint8:
                     gt = np.clip(255*gt, 0, 255).astype(np.uint8)
                 vis_img = np.concatenate([gt[..., None].repeat(3, -1), vis_img], axis=0)
@@ -145,8 +162,8 @@ def train_worker(gpu, cfg):
         print(OmegaConf.to_yaml(cfg))
 
     datasets = {
-        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task),
-        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task)
+        'train': MultitaskDataset(cfg.dataset, 'train', cfg.task, cfg.training.online),
+        'val': MultitaskDataset(cfg.dataset, 'val', cfg.task, cfg.training.online)
     }
     for subset, dataset in datasets.items():
         print(f'{subset} set size:', len(dataset))
@@ -168,12 +185,16 @@ def train_worker(gpu, cfg):
         word_to_idx = model.word_to_idx
         token_ids_to_words = model.token_ids_to_words
         vocab = model.vocab
+        roberta = model.roberta
+        img_vqgan = model.img_vqgan
         tgt_vqgan = model.tgt_vqgan
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[cfg.gpu], find_unused_parameters=True)
         model.word_to_idx = word_to_idx
         model.token_ids_to_words = token_ids_to_words
         model.vocab = vocab
+        model.roberta = roberta
+        model.img_vqgan = img_vqgan
         model.tgt_vqgan = tgt_vqgan
         model.device = device
 
@@ -202,7 +223,7 @@ def train_worker(gpu, cfg):
     params_w_decay = []
     params_wo_decay = []
     for n, p in model.named_parameters():
-        if 'tgt_vqgan' in n:
+        if 'roberta' in n or 'vqgan' in n:
             continue
         elif 'bias' in n or 'emb' in n or 'norm' in n or 'ln' in n or 'task_query' in n:
             params_wo_decay.append(p)
@@ -284,11 +305,25 @@ def train_worker(gpu, cfg):
 
         for it, data in enumerate(dataloaders['train']):
             imgs, queries, targets = data
-            
-            model.train()
 
-            buffer_names = [target['buffer_name'] for target in targets]
-            loss = model(buffer_names, train=True)
+            if targets[0]['online']:
+                txt_seq, txt_pad_mask = encode_txt(model.roberta, queries, model.device)
+                img_seq = encode_img(model.img_vqgan, imgs, model.device)
+                tgts = []
+                for target in targets:
+                    tgt = target['target']
+                    if isinstance(tgt, tuple):
+                        tgt = tgt[0]
+                    tgts.append(tgt)
+                tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)
+                model.train()
+                loss = model(buffer_names=None, seq_tuple=(
+                    txt_seq, txt_pad_mask, img_seq, tgt_seq
+                ), train=True)
+            else:
+                buffer_names = [target['buffer_name'] for target in targets]
+                model.train()
+                loss = model(buffer_names, seq_tuple=None, train=True)
 
             if loss is not None:
                 optimizer.zero_grad()
@@ -391,7 +426,7 @@ def train_worker(gpu, cfg):
                         model_selection_metric = model_selection_metric + \
                                                  bbox_AP50 + bbox_mAP + mask_mIoU + \
                                                  mask_AP[0] + mask_AP[1] + mask_AP[2] + \
-                                                 1 - depth_l1_error
+                                                 - depth_l1_error
 
             if model_selection_metric > best_metric:
                 print('Saving checkpoint ...')

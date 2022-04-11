@@ -165,7 +165,7 @@ class RandomSizeCrop(object):
         self.respect_boxes = respect_boxes   # can't scratch box if True
 
     def __call__(self, img: PIL.Image.Image, target: dict):
-        init_boxes = len(target["boxes"])
+        init_boxes = len(target["boxes"]) if 'boxes' in target else 0
         max_patience = 100
         for i in range(max_patience):
             w = random.randint(self.min_size, min(img.width, self.max_size))

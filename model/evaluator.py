@@ -114,10 +114,22 @@ class Evaluator():
         pred_depth: ndarray [256, 256]
         gt_depth: tensor [256, 256] or [1, 256, 256], float in [0, 1]
         """
-        pred_depth = np.array(pred_depth)
+        pred_depth = np.array(pred_depth).squeeze()
+
+        valid_mask = None
+        if isinstance(gt_depth, tuple):
+            gt_depth, valid_mask = gt_depth
+
         if isinstance(gt_depth, torch.Tensor):
             gt_depth = gt_depth.detach().cpu().numpy().squeeze()
         else:
             gt_depth = np.array(gt_depth).squeeze()
         
-        return np.abs(pred_depth-gt_depth).mean()
+        if valid_mask is None:
+            return np.abs(pred_depth-gt_depth).mean()
+        else:
+            if isinstance(valid_mask, torch.Tensor):
+                valid_mask = valid_mask.detach().cpu().numpy().squeeze()
+            else:
+                valid_mask = np.array(valid_mask).squeeze()
+            return np.abs(pred_depth-gt_depth).mean(where=valid_mask)

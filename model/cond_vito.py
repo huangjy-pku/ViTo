@@ -10,22 +10,23 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
+from .roberta import RoBERTa
 from .mingpt import GPT
 from taming.vqgan import VQModel
 
 
+def build_image_vqgan(cfg):
+    vqgan = VQModel(ddconfig=cfg.image_vqgan.ddconfig, n_embed=cfg.image_vqgan.n_embed,
+                    embed_dim=cfg.image_vqgan.embed_dim, ckpt_path=cfg.image_vqgan.ckpt)
+    vqgan.eval()
+    return vqgan
+
+
 def build_target_vqgan(cfg):
-    n_embed = cfg.target_vqgan.n_embed
-    if cfg.refine_code is not None:
-        cdbk = torch.load(cfg.refine_code, map_location='cpu')
-        n_embed = cdbk['size']
-        refined_embed = torch.from_numpy(cdbk['embed']).to(vqgan.device)
-        print(f'update VQGAN embedding from {cfg.refine_code}')
-    vqgan = VQModel(ddconfig=cfg.target_vqgan.ddconfig, n_embed=n_embed,
+    vqgan = VQModel(ddconfig=cfg.target_vqgan.ddconfig, n_embed=cfg.target_vqgan.n_embed,
                     embed_dim=cfg.target_vqgan.embed_dim, ckpt_path=cfg.target_vqgan.ckpt)
-    if cfg.refine_code is not None:
-        vqgan.quantize.embedding.weight.data = refined_embed
     vqgan.eval()
     return vqgan
 
@@ -45,11 +46,13 @@ class ViTo(nn.Module):
         super().__init__()
         self.cfg = cfg
 
+        self.roberta = RoBERTa()
+        self.img_vqgan = build_image_vqgan(cfg)
         self.tgt_vqgan = build_target_vqgan(cfg)
 
-        self.txt_proj = nn.Linear(cfg.text_filter.roberta_dim, cfg.text_filter.hidden_dim)
+        self.txt_proj = nn.Linear(cfg.text_filter.roberta_dim, cfg.decoder.n_embd)
         # text sequence to 3 tokens: task, object, context respectively
-        self.task_query = nn.Embedding(3, cfg.hidden_dim)
+        self.task_query = nn.Embedding(3, cfg.decoder.n_embd)
         self.txt_filter = build_transformer_decoder(cfg.text_filter)
 
         self.vocab_expansion()
@@ -100,16 +103,21 @@ class ViTo(nn.Module):
                 enhance_dict.update({i: w})
         return weights, enhance_dict
 
-    def forward(self, buffer_names, train=True):
+    def forward(self, buffer_names, seq_tuple, train=True):
         """
         intermediate tensors are required to be inferred and stored in buffer_path offline
         buffer_names: stacked string-ids of data samples
         """
         self.device = next(self.parameters()).device
 
-        txt_seq, txt_pad_mask, img_seq, tgt_seq = self.get_seq(buffer_names)
-        # img_seq: [batch_size, 256]
+        if seq_tuple is None:
+            txt_seq, txt_pad_mask, img_seq, tgt_seq = self.get_offline(buffer_names)
+        else:
+            txt_seq, txt_pad_mask, img_seq, tgt_seq = self.get_online(seq_tuple)
+        
         # txt_seq: [batch_size, num_txt_tokens, roberta_dim]
+        # txt_pad_mask: [batch_size, num_txt_tokens]
+        # img_seq: [batch_size, 256]
         # tgt_seq: [batch_size, 1+256]
 
         txt_seq = self.txt_proj(txt_seq).transpose(0, 1)
@@ -138,7 +146,7 @@ class ViTo(nn.Module):
             logits = logits[:, -tgt_seq.shape[1]:]
             return logits
 
-    def get_seq(self, buffer_names):
+    def get_offline(self, buffer_names):
         """
         return img_seqs [batch_size, len_img] with each element representing an index of image code,
         txt_seqs [batch_size, len_txt, dim_txt],
@@ -181,6 +189,25 @@ class ViTo(nn.Module):
         return txt_seqs.to(self.device), txt_pad_masks.to(self.device), \
                img_seqs.to(self.device), tgt_seqs.to(self.device)
 
+    def get_online(self, seq_tuple):
+        txt_seq, txt_pad_mask, img_seq, tgt_seq = seq_tuple
+        img_seq_new = torch.zeros(
+            (0, int((256/self.cfg.image_vqgan.downsample_factor)**2)),
+            dtype=int
+        )
+        tgt_seq_new = torch.zeros(
+            (0, int((256/self.cfg.image_vqgan.downsample_factor)**2)+1),
+            dtype=int
+        )
+        for seq in img_seq:
+            seq_new = torch.tensor([self.word_to_idx[str_token] for str_token in seq], dtype=int)
+            img_seq_new = torch.cat([img_seq_new, seq_new[None, :]], dim=0)
+        for seq in tgt_seq:
+            seq_new = torch.tensor([self.word_to_idx[str_token] for str_token in seq], dtype=int)
+            tgt_seq_new = torch.cat([tgt_seq_new, seq_new[None, :]], dim=0)
+        return txt_seq.to(self.device), txt_pad_mask.to(self.device), \
+               img_seq_new.to(self.device), tgt_seq_new.to(self.device)
+
     def token_ids_to_words(self, token_ids):
         B, S = token_ids.shape
         words = [None] * B
@@ -190,3 +217,47 @@ class ViTo(nn.Module):
                 words[i][j] = self.vocab[token_ids[i, j]]
 
         return words
+
+
+@torch.no_grad()
+def encode_txt(roberta, txts, device):
+    txt_seqs, token_inputs = roberta(txts, device=device)
+    txt_pad_masks = ~token_inputs['attention_mask'].to(torch.bool)
+    return txt_seqs, txt_pad_masks
+
+@torch.no_grad()
+def encode_img(img_vqgan, imgs, device):
+    if not isinstance(imgs, torch.Tensor):
+        imgs = torch.stack(imgs)
+    
+    img_input = 2*imgs - 1
+    img_input = img_input.to(device)
+
+    encoding_indices = img_vqgan.encode(img_input)[-1][-1]
+    
+    img_seqs = [f'img_{elem.item()}' for elem in encoding_indices]
+    img_seqs = [img_seqs[i*256:(i+1)*256] for i in range(len(imgs))]
+    return img_seqs
+
+@torch.no_grad()
+def encode_tgt(tgt_vqgan, tgts, task, num_bins, device):
+    if task == 'bbox':
+        tgt_seqs = []
+        for tgt in tgts:
+            # assume already normalized to [0, 1]
+            tgt_seq = [f'pos_{np.clip(round(float(p)*num_bins-0.5), 0, num_bins-1)}' for p in tgt.flatten()]
+            tgt_seq = ['__bbox__'] + tgt_seq
+            tgt_seqs.append(tgt_seq)
+    else:
+        if not isinstance(tgts, torch.Tensor):
+            tgts = torch.stack(tgts)
+        
+        tgt_input = 2*tgts - 1
+        tgt_input = tgt_input.to(device).float()
+
+        encoding_indices = tgt_vqgan.encode(tgt_input)[-1][-1]
+        
+        tgt_seqs = [f'dense_{elem.item()}' for elem in encoding_indices]
+        tgt_seqs = [[f'__{task}__']+tgt_seqs[i*256:(i+1)*256] for i in range(len(tgts))]
+    
+    return tgt_seqs

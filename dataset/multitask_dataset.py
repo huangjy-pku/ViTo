@@ -5,7 +5,7 @@ from .generic_dataset import GenericDataset, collate_fn
 
 
 class MultitaskDataset(Dataset):
-    def __init__(self, datasets, subset, tasks):
+    def __init__(self, datasets, subset, tasks, online):
         super().__init__()
         self.datasets = {}
         self.sample_l = []   # lower index
@@ -14,7 +14,7 @@ class MultitaskDataset(Dataset):
             for dataset, info in datasets[task].items():
                 dataset_name = f'{dataset}_{task}'
                 self.datasets[dataset_name] = GenericDataset(
-                    dataset_name, info, subset, task
+                    dataset_name, info, subset, task, online
                 )
                 L = len(self.datasets[dataset_name])
                 if len(self.sample_l) == 0:

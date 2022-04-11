@@ -7,6 +7,7 @@ import torch
 import utils.io as io
 from utils.bbox_utils import seq2bbox, seq2dense
 from .evaluator import Evaluator
+from .cond_vito import encode_txt, encode_img, encode_tgt
 
 
 def refexp_metrics(model, dataloader, cfg):
@@ -23,8 +24,22 @@ def refexp_metrics(model, dataloader, cfg):
     for data in tqdm(dataloader):
         imgs, queries, targets = data
 
-        buffer_names = [target['buffer_name'] for target in targets]
-        outputs_logits = model(buffer_names, train=False)
+        if targets[0]['online']:
+            txt_seq, txt_pad_mask = encode_txt(model.roberta, queries, model.device)
+            img_seq = encode_img(model.img_vqgan, imgs, model.device)
+            tgts = []
+            for target in targets:
+                tgt = target['target']
+                if isinstance(tgt, tuple):
+                    tgt = tgt[0]
+                tgts.append(tgt)
+            tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)
+            outputs_logits = model(buffer_names=None, seq_tuple=(
+                txt_seq, txt_pad_mask, img_seq, tgt_seq
+            ), train=False)
+        else:
+            buffer_names = [target['buffer_name'] for target in targets]
+            outputs_logits = model(buffer_names, seq_tuple=None, train=False)
 
         topk = torch.topk(outputs_logits, k=1, dim=-1)
         topk_ids = topk.indices.detach().squeeze(-1).cpu().numpy()   # [batch_size, tgt_len]

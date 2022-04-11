@@ -39,9 +39,8 @@ class GPT1Config(GPTConfig):
     n_embd = 768
 
 
-def custom_mask(block_size, row_col_dict):
+def custom_mask(attn_mask, row_col_dict):
     # only activate keys of col in row queries
-    attn_mask = torch.tril(torch.ones(block_size, block_size))
     for row, col in row_col_dict.items():
         attn_mask[row, :] = 0
         attn_mask[row, col] = 1
@@ -68,9 +67,9 @@ class CausalSelfAttention(nn.Module):
         # output projection
         self.proj = nn.Linear(config.n_embd, config.n_embd)
         # causal mask to ensure that attention is only applied to the left in the input sequence
-        # mask = torch.tril(torch.ones(config.block_size,
-        #                              config.block_size))
-        mask = custom_mask(config.block_size, {258: 0})
+        mask = torch.tril(torch.ones(config.block_size,
+                                     config.block_size))
+        # mask = custom_mask(mask, {258: 0})
         if hasattr(config, "n_unmasked"):
             mask[:config.n_unmasked, :config.n_unmasked] = 1
         self.register_buffer("mask", mask.view(1, 1, config.block_size, config.block_size))

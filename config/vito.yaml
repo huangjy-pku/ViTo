@@ -1,12 +1,12 @@
 exp_name: default
-output_dir: /mnt/data/jiangyong/vito
+output_dir: /scratch/huangjiangyong/data/vito
 exp_dir: ${output_dir}/${exp_name}
 tb_dir: ${exp_dir}/tb_logs
 ckpt_dir: ${exp_dir}/ckpts
-refexp_data: /mnt/data/jiangyong/refexp/data
-refexp_anno: /home/jiangyong/repo/vito2/data/anns
-refexp_mask: /home/jiangyong/repo/vito2/data/masks
-taskonomy: /mnt/data/jiangyong/taskonomy
+refexp_data: /scratch/generalvision/refexp
+refexp_anno: ${refexp_data}/annos
+refexp_mask: ${refexp_data}/masks
+taskonomy: /scratch/generalvision/taskonomy
 
 gpu: 0
 num_nodes: 1
@@ -24,7 +24,6 @@ hydra:
     dir: ${output_dir}/${exp_name}
 
 model:
-  hidden_dim: 256
   num_bins: 200
   txt_buffer: ${output_dir}/text_buffer
   img_buffer: ${output_dir}/image_buffer
@@ -33,7 +32,7 @@ model:
   refine_code: null   # for codebook of target encoder
   text_filter:
     roberta_dim: 768
-    hidden_dim: 256
+    hidden_dim: ${model.decoder.n_embd}
     dropout: 0.1
     nheads: 8
     num_layers: 2
@@ -71,9 +70,9 @@ model:
       dropout: 0.0
   decoder:
     block_size: 516   # 3+256+1+256
-    n_layer: 16
-    n_head: 8
-    n_embd: 256
+    n_layer: 24
+    n_head: 16
+    n_embd: 1024
 
 task: null
 prepare: null
@@ -85,29 +84,30 @@ dataset:
       anno_dir: ${refexp_anno}/refclef
       mask_dir: ${refexp_mask}/refclef
     refcoco:
-      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      img_dir: ${refexp_data}/images/train2014
       anno_dir: ${refexp_anno}/refcoco
       mask_dir: ${refexp_mask}/refcoco
     refcoco+:
-      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      img_dir: ${refexp_data}/images/train2014
       anno_dir: ${refexp_anno}/refcoco+
       mask_dir: ${refexp_mask}/refcoco+
     refcocog:
-      img_dir: ${refexp_data}/images/mscoco/images/train2014
+      img_dir: ${refexp_data}/images/train2014
       anno_dir: ${refexp_anno}/refcocog
       mask_dir: ${refexp_mask}/refcocog
   mask: ${dataset.bbox}
   depth:
     taskonomy:
       img_dir: ${taskonomy}/rgb
-      anno_dir: ${refexp_anno}/taskonomy
+      anno_dir: ${taskonomy}/anno
       depth_dir: ${taskonomy}/depth_zbuffer
 
 training:
   ckpt: ${exp_dir}/ckpts/model.pth
   num_epochs: 60
-  batch_size: 256
-  num_workers: 30
+  batch_size: 128
+  num_workers: 64
+  online: True
   vis_step: 2000
   log_step: 10
   ckpt_step: 2000
@@ -123,7 +123,7 @@ training:
 
 eval:
   ckpt: ${exp_dir}/ckpts/model.pth
-  batch_size: 64
-  num_workers: 20
+  batch_size: 100
+  num_workers: 50
   run_eval_at_launch: True
   num_val_samples: 100

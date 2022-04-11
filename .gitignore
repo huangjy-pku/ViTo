@@ -7,6 +7,9 @@ test.py
 *.png
 *.npy
 draft.ipynb
+*.log
+*.out
+*.slurm
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
