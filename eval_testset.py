@@ -27,7 +27,7 @@ def run_eval(cfg, model, tasks):
                     dataset_name = f'{dataset}_{task}'
                     testsets.update({
                         f'{dataset_name}_{subset}': \
-                            GenericDataset(dataset_name, info, subset, task, cfg.online)})
+                            GenericDataset(dataset_name, info, subset, task, cfg.training.online)})
 
     dataloaders = {}
     for dataset_name, dataset in testsets.items():
