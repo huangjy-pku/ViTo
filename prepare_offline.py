@@ -70,7 +70,7 @@ def make_offline(dataloader, task, dst_dir, mod, model, device):
                     tgt_seq = bbox_process(targets[0]['target'], num_bins)
                 else:
                     tgt = targets[0]['target']
-                    if isinstance(tgt, tuple):
+                    if isinstance(tgt, (list, tuple)):
                         tgt = tgt[0]
                     tgt = 2*tgt - 1
                     tgt = tgt.unsqueeze(0).to(device)

@@ -39,6 +39,9 @@ def crop(image, target, region):
         # FIXME should we update the area here if there are no boxes?
         target['masks'] = target['masks'][:, i:i + h, j:j + w]
         fields.append("masks")
+    if "depth" in target:
+        target['depth'] = target['depth'][:, i:i + h, j:j + w]
+        fields.append("depth")
 
     # remove elements for which the boxes or masks that have zero area
     if "boxes" in target or "masks" in target:
@@ -70,6 +73,8 @@ def hflip(image, target):
 
     if "masks" in target:
         target["masks"] = target["masks"].flip(-1)
+    if "depth" in target:
+        target["depth"] = target["depth"].flip(-1)
     
     if "query" in target:
         target["query"] = target["query"].replace("left", "[TMP]").replace("right", "left").replace("[TMP]", "right")
@@ -132,6 +137,9 @@ def resize(image, target, size, max_size=None):
     if "masks" in target:
         target['masks'] = interpolate(
             target['masks'][:, None].float(), size, mode="nearest")[:, 0] > 0.5
+    if "depth" in target:
+        target['depth'] = interpolate(
+            target['depth'][:, None].float(), size, mode="nearest")[:, 0]
 
     return rescaled_image, target
 
@@ -146,6 +154,8 @@ def pad(image, target, padding):
     target["size"] = torch.tensor(padded_image.size[::-1])
     if "masks" in target:
         target['masks'] = torch.nn.functional.pad(target['masks'], (0, padding[0], 0, padding[1]))
+    if "depth" in target:
+        target['depth'] = torch.nn.functional.pad(target['depth'], (0, padding[0], 0, padding[1]))
     return padded_image, target
 
 

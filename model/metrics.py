@@ -30,7 +30,7 @@ def refexp_metrics(model, dataloader, cfg):
             tgts = []
             for target in targets:
                 tgt = target['target']
-                if isinstance(tgt, tuple):
+                if isinstance(tgt, (list, tuple)):
                     tgt = tgt[0]
                 tgts.append(tgt)
             tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)
@@ -65,7 +65,12 @@ def refexp_metrics(model, dataloader, cfg):
                 pred_depth = seq2dense(pred_seqs[b], model, 'depth', down_factor=cfg.model.target_vqgan.downsample_factor)
                 grp.create_dataset('depth', dtype='f', data=pred_depth)
             
-            grp.create_dataset('gt', dtype='f', data=targets[b]['target'])
+            gt = targets[b]['target']
+            if isinstance(gt, (list, tuple)):
+                grp.create_dataset('gt', dtype='f', data=gt[0])
+                grp.create_dataset('valid_mask', dtype='bool', data=gt[1])
+            else:
+                grp.create_dataset('gt', dtype='f', data=gt)
                 
             total += 1
         

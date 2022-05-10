@@ -40,7 +40,7 @@ class Evaluator():
                     absent += 1
             elif 'depth' in grp:
                 if grp['depth'].shape is not None:
-                    l1_error = self.evaluate_depth(grp['depth'], grp['gt'])
+                    l1_error = self.evaluate_depth(grp['depth'], grp['gt'], grp['valid_mask'])
                     depth_err.append(l1_error)
                 else:
                     absent += 1
@@ -108,17 +108,13 @@ class Evaluator():
         acc = iou >= iou_thre
         return iou, acc
     
-    def evaluate_depth(self, pred_depth, gt_depth):
+    def evaluate_depth(self, pred_depth, gt_depth, valid_mask):
         """
         metric: l1 error averaged on pixels
         pred_depth: ndarray [256, 256]
         gt_depth: tensor [256, 256] or [1, 256, 256], float in [0, 1]
         """
         pred_depth = np.array(pred_depth).squeeze()
-
-        valid_mask = None
-        if isinstance(gt_depth, tuple):
-            gt_depth, valid_mask = gt_depth
 
         if isinstance(gt_depth, torch.Tensor):
             gt_depth = gt_depth.detach().cpu().numpy().squeeze()

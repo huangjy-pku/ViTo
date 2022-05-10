@@ -59,7 +59,7 @@ def visualize(model, dataloader, cfg, step, subset):
             tgts = []
             for target in targets:
                 tgt = target['target']
-                if isinstance(tgt, tuple):
+                if isinstance(tgt, (list, tuple)):
                     tgt = tgt[0]
                 tgts.append(tgt)
             tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)
@@ -110,7 +110,7 @@ def visualize(model, dataloader, cfg, step, subset):
                     vis_img = np.concatenate([gt[..., None].repeat(3, -1), vis_img], axis=0)
             elif t['task'] == 'depth':
                 gt = t['target']
-                if isinstance(gt, tuple):
+                if isinstance(gt, (list, tuple)):
                     gt = gt[0]
                 gt = gt.detach().squeeze(0).cpu().numpy()
                 if gt.dtype != np.uint8:
@@ -126,7 +126,10 @@ def visualize(model, dataloader, cfg, step, subset):
             vis_name = str(step).zfill(6) + '_' + str(count+i).zfill(4) + '.png'
             skio.imsave(os.path.join(vis_dir, vis_name), vis_img)
 
-            gt_seq = torch.load(os.path.join(cfg.model.tgt_buffer, t['buffer_name']), map_location='cpu')
+            if cfg.training.online:
+                gt_seq = tgt_seq[i]
+            else:
+                gt_seq = torch.load(os.path.join(cfg.model.tgt_buffer, t['buffer_name']), map_location='cpu')
 
             html_writer.add_element({
                 0: queries[i],
@@ -312,7 +315,7 @@ def train_worker(gpu, cfg):
                 tgts = []
                 for target in targets:
                     tgt = target['target']
-                    if isinstance(tgt, tuple):
+                    if isinstance(tgt, (list, tuple)):
                         tgt = tgt[0]
                     tgts.append(tgt)
                 tgt_seq = encode_tgt(model.tgt_vqgan, tgts, targets[0]['task'], cfg.model.num_bins, model.device)

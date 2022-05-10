@@ -30,12 +30,13 @@ model:
   tgt_buffer: ${output_dir}/target_buffer
   task: ${task}
   refine_code: null   # for codebook of target encoder
-  text_filter:
-    roberta_dim: 768
-    hidden_dim: ${model.decoder.n_embd}
-    dropout: 0.1
-    nheads: 8
-    num_layers: 2
+  roberta_dim: 768
+  # text_filter:
+  #   roberta_dim: 768
+  #   hidden_dim: ${model.decoder.n_embd}
+  #   dropout: 0.1
+  #   nheads: 8
+  #   num_layers: 2
   image_vqgan:
     embed_dim: 256
     n_embed: 1024
@@ -69,7 +70,8 @@ model:
       attn_resolutions: [16]
       dropout: 0.0
   decoder:
-    block_size: 516   # 3+256+1+256
+    block_size: 513   # 256+1+256
+    text_max_len: 70
     n_layer: 24
     n_head: 16
     n_embd: 1024

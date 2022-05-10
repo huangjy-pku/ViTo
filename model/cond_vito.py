@@ -50,15 +50,16 @@ class ViTo(nn.Module):
         self.img_vqgan = build_image_vqgan(cfg)
         self.tgt_vqgan = build_target_vqgan(cfg)
 
-        self.txt_proj = nn.Linear(cfg.text_filter.roberta_dim, cfg.decoder.n_embd)
+        self.txt_proj = nn.Linear(cfg.roberta_dim, cfg.decoder.n_embd)
         # text sequence to 3 tokens: task, object, context respectively
-        self.task_query = nn.Embedding(3, cfg.decoder.n_embd)
-        self.txt_filter = build_transformer_decoder(cfg.text_filter)
+        # self.task_query = nn.Embedding(3, cfg.decoder.n_embd)
+        # self.txt_filter = build_transformer_decoder(cfg.text_filter)
 
         self.vocab_expansion()
 
         self.decoder = GPT(vocab_size=self.vocab_size,
                            block_size=cfg.decoder.block_size,
+                           text_max_len=cfg.decoder.text_max_len,
                            n_layer=cfg.decoder.n_layer,
                            n_head=cfg.decoder.n_head,
                            n_embd=cfg.decoder.n_embd)
@@ -120,17 +121,19 @@ class ViTo(nn.Module):
         # img_seq: [batch_size, 256]
         # tgt_seq: [batch_size, 1+256]
 
-        txt_seq = self.txt_proj(txt_seq).transpose(0, 1)
-        task_seq = self.txt_filter(
-            tgt=self.task_query.weight.unsqueeze(1).repeat(1, txt_seq.shape[1], 1),
-            memory=txt_seq, memory_key_padding_mask=txt_pad_mask
-        )
-        task_seq = task_seq.transpose(0, 1)
-        # task_seq: [batch_size, 3, hidden_dim]
+        # txt_seq = self.txt_proj(txt_seq).transpose(0, 1)
+        # task_seq = self.txt_filter(
+        #     tgt=self.task_query.weight.unsqueeze(1).repeat(1, txt_seq.shape[1], 1),
+        #     memory=txt_seq, memory_key_padding_mask=txt_pad_mask
+        # )
+        # task_seq = task_seq.transpose(0, 1)
+        # # task_seq: [batch_size, 3, hidden_dim]
+        txt_seq = self.txt_proj(txt_seq)   # [B, T, n_embd]
+        pad_idx = (txt_pad_mask == 0).nonzero()   # [idx(B), idx(T)]
 
         if train:
             seq_idx = torch.cat([img_seq, tgt_seq], dim=1)
-            logits, _ = self.decoder(idx=seq_idx[:, :-1], embeddings=task_seq)
+            logits, _ = self.decoder(idx=seq_idx[:, :-1], embeddings=txt_seq, pad_idx=pad_idx)
             # supervise target part
             logits = logits[:, -tgt_seq.shape[1]:]
             # [batch_size, 257, vocab_size]
@@ -139,7 +142,7 @@ class ViTo(nn.Module):
         else:
             seq_idx = img_seq
             for i in range(tgt_seq.shape[1]):
-                logits, _ = self.decoder(idx=seq_idx, embeddings=task_seq)
+                logits, _ = self.decoder(idx=seq_idx, embeddings=txt_seq, pad_idx=pad_idx)
                 logit = logits[:, -1, :]
                 _, idx = torch.topk(logit, k=1, dim=-1)
                 seq_idx = torch.cat([seq_idx, idx], dim=-1)
@@ -160,7 +163,7 @@ class ViTo(nn.Module):
         txt_seq_list = []
         txt_len_list = []
         tgt_seqs = torch.zeros(
-            (0, int((256/self.cfg.image_vqgan.downsample_factor)**2)+1),
+            (0, int((256/self.cfg.target_vqgan.downsample_factor)**2)+1),
             dtype=int
         )
         for i in range(B):
@@ -180,7 +183,7 @@ class ViTo(nn.Module):
             tgt_seqs = torch.cat([tgt_seqs, tgt_seq[None, :]], dim=0)
 
         txt_len_max = max(txt_len_list)
-        txt_seqs = torch.zeros(B, txt_len_max, self.cfg.text_filter.roberta_dim)
+        txt_seqs = torch.zeros(B, txt_len_max, self.cfg.roberta_dim)
         txt_pad_masks = torch.ones(B, txt_len_max).to(torch.bool)
         for i, txt_seq in enumerate(txt_seq_list):
             txt_seqs[i, :txt_len_list[i]] = txt_seq
@@ -192,11 +195,11 @@ class ViTo(nn.Module):
     def get_online(self, seq_tuple):
         txt_seq, txt_pad_mask, img_seq, tgt_seq = seq_tuple
         img_seq_new = torch.zeros(
-            (0, int((256/self.cfg.image_vqgan.downsample_factor)**2)),
+            (0, len(img_seq[0])),
             dtype=int
         )
         tgt_seq_new = torch.zeros(
-            (0, int((256/self.cfg.image_vqgan.downsample_factor)**2)+1),
+            (0, len(tgt_seq[0])),
             dtype=int
         )
         for seq in img_seq:
@@ -222,7 +225,7 @@ class ViTo(nn.Module):
 @torch.no_grad()
 def encode_txt(roberta, txts, device):
     txt_seqs, token_inputs = roberta(txts, device=device)
-    txt_pad_masks = ~token_inputs['attention_mask'].to(torch.bool)
+    txt_pad_masks = token_inputs['attention_mask'].to(torch.bool)
     return txt_seqs, txt_pad_masks
 
 @torch.no_grad()

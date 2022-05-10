@@ -67,15 +67,16 @@ class CausalSelfAttention(nn.Module):
         # output projection
         self.proj = nn.Linear(config.n_embd, config.n_embd)
         # causal mask to ensure that attention is only applied to the left in the input sequence
-        mask = torch.tril(torch.ones(config.block_size,
-                                     config.block_size))
+        # mask = torch.tril(torch.ones(config.block_size,
+        #                              config.block_size))
         # mask = custom_mask(mask, {258: 0})
-        if hasattr(config, "n_unmasked"):
-            mask[:config.n_unmasked, :config.n_unmasked] = 1
-        self.register_buffer("mask", mask.view(1, 1, config.block_size, config.block_size))
+        # if hasattr(config, "n_unmasked"):
+        #     mask[:config.n_unmasked, :config.n_unmasked] = 1
+        # self.register_buffer("mask", mask.view(1, 1, config.block_size, config.block_size))
         self.n_head = config.n_head
+        self.v_len = config.block_size
 
-    def forward(self, x, layer_past=None):
+    def forward(self, x, layer_past=None, t_len=None, pad_idx=None):
         B, T, C = x.size()
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -89,10 +90,17 @@ class CausalSelfAttention(nn.Module):
             k = torch.cat((past_key, k), dim=-2)
             v = torch.cat((past_value, v), dim=-2)
 
+        total_len = t_len + self.v_len
+        mask = torch.tril(torch.ones(total_len, total_len))[None, None, ...]
+        if pad_idx is not None:
+            mask = mask.repeat(B, 1, 1, 1)
+            mask[pad_idx[:,0], :, :, pad_idx[:, 1]] = 0   # [B, nh, block_size, block_size]
+
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        mask = mask.to(att.device)
         if layer_past is None:
-            att = att.masked_fill(self.mask[:,:,:T,:T] == 0, float('-inf'))
+            att = att.masked_fill(mask[:,:,:T,:T] == 0, float('-inf'))
 
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
@@ -118,11 +126,11 @@ class Block(nn.Module):
             nn.Dropout(config.resid_pdrop),
         )
 
-    def forward(self, x, layer_past=None, return_present=False):
+    def forward(self, x, layer_past=None, return_present=False, t_len=None, pad_idx=None):
         # TODO: check that training still works
         if return_present: assert not self.training
         # layer past: tuple of length two with B, nh, T, hs
-        attn, present = self.attn(self.ln1(x), layer_past=layer_past)
+        attn, present = self.attn(self.ln1(x), layer_past=layer_past, t_len=t_len, pad_idx=pad_idx)
 
         x = x + attn
         x = x + self.mlp(self.ln2(x))
@@ -133,7 +141,7 @@ class Block(nn.Module):
 
 class GPT(nn.Module):
     """  the full GPT language model, with a context size of block_size """
-    def __init__(self, vocab_size, block_size, n_layer=12, n_head=8, n_embd=256,
+    def __init__(self, vocab_size, block_size, text_max_len, n_layer=12, n_head=8, n_embd=256,
                  embd_pdrop=0., resid_pdrop=0., attn_pdrop=0., n_unmasked=0):
         super().__init__()
         config = GPTConfig(vocab_size=vocab_size, block_size=block_size,
@@ -142,7 +150,8 @@ class GPT(nn.Module):
                            n_unmasked=n_unmasked)
         # input embedding stem
         self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        self.pos_emb_v = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        self.pos_emb_l = nn.Parameter(torch.zeros(1, text_max_len, config.n_embd))
         self.drop = nn.Dropout(config.embd_pdrop)
         # transformer
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
@@ -166,18 +175,24 @@ class GPT(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, idx, embeddings=None, targets=None):
+    def forward(self, idx, embeddings=None, targets=None, pad_idx=None):
         # embeddings: [b, t, d]
         token_embeddings = self.tok_emb(idx)   # each index maps to a (learnable) vector
+        token_embeddings  = token_embeddings + self.pos_emb_v[:, :token_embeddings.shape[1], :]
 
+        t_len = 0 if embeddings is None else embeddings.shape[1]
         if embeddings is not None:   # prepend task embedding
+            embeddings = embeddings + self.pos_emb_l[:, :embeddings.shape[1], :]
             token_embeddings = torch.cat((embeddings, token_embeddings), dim=1)
 
-        t = token_embeddings.shape[1]
-        assert t <= self.block_size, "Cannot forward, model block size is exhausted."
-        position_embeddings = self.pos_emb[:, :t, :]   # each position maps to a (learnable) vector
-        x = self.drop(token_embeddings + position_embeddings)
-        x = self.blocks(x)
+        # t = token_embeddings.shape[1]
+        # assert t <= self.block_size, "Cannot forward, model block size is exhausted."
+        # position_embeddings = self.pos_emb[:, :t, :]   # each position maps to a (learnable) vector
+        # x = self.drop(token_embeddings + position_embeddings)
+        x = self.drop(token_embeddings)
+        # x = self.blocks(x, t_len=t_len, pad_idx=pad_idx)
+        for block in self.blocks:
+            x = block(x, t_len=t_len, pad_idx=pad_idx)
         x = self.ln_f(x)
         logits = self.head(x)
 

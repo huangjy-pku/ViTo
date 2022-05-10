@@ -71,7 +71,7 @@ def square_refine(img, target):
     if H == W:
         if torch.numel(target) == 4:
             # bbox
-            return img, target / ori_W
+            return img, target.flatten() / ori_W
         else:
             # dense
             return img, F.resize(target, 256) 
@@ -80,7 +80,7 @@ def square_refine(img, target):
         if torch.numel(target) == 4:
             # bbox, determine which crop by distance along the longer side
             # input bbox labels are absolute values (int type)
-            target = target / ori_W * W
+            target = target.flatten() / ori_W * W
 
             bbox_center = (target[0]+target[2])/2 if W > H else (target[1]+target[3])/2
             crop_centers = torch.tensor([shorter/2, longer/2, longer-shorter/2])
@@ -152,7 +152,7 @@ class GenericDataset(Dataset):
 
     def get_depth(self, depth_name):
         depth = Image.open(os.path.join(self.info.depth_dir, depth_name))
-        depth = F.to_tensor(depth)
+        depth = F.to_tensor(depth).float()
         return depth
 
     def depth_process(self, depth, mode):
@@ -213,7 +213,6 @@ class GenericDataset(Dataset):
                 'boxes': torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4)
             }
             img, target = self.transform(img, target)
-            
             query = target['query']
             target = target['boxes']
         else:
@@ -224,16 +223,18 @@ class GenericDataset(Dataset):
                     'boxes': torch.as_tensor(sample['bbox'], dtype=torch.float32).reshape(-1, 4),
                     'masks': self.get_mask(sample['segment_id'])
                 }
+                img, target = self.transform(img, target)
+                query = target['query']
+                target = target['masks']
             else:
                 query = random.choice(depth_queries)
                 target = {
                     'query': query,
-                    'masks': self.get_depth(sample['depth_name'])   # fake mask
+                    'depth': self.get_depth(sample['depth_name'])
                 }
-            img, target = self.transform(img, target)
-
-            query = target['query']
-            target = target['masks']
+                img, target = self.transform(img, target)
+                query = target['query']
+                target = target['depth'] 
             
         img, target = square_refine(img, target)
 
@@ -256,8 +257,8 @@ class GenericDataset(Dataset):
 
 
 def collate_fn(batch):
-        batch = list(zip(*batch))
-        return tuple(batch)
+    batch = list(zip(*batch))
+    return tuple(batch)
 
 
 @hydra.main(config_path="../config", config_name="vito.yaml")
