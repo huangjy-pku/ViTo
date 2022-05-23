@@ -1,5 +1,13 @@
 ## Vision as Tokens
 
+- This repo is the implementation of my bachelor thesis: *Towards Unifying Visual Discriminative Tasks from Generative Representation*, which is not published yet.
+
+- We provide two settings, named MDETR and VQGAN respectively, to uniformly handle three visual discriminative tasks:
+  - Phrase Grounding
+  - Phrase Segmentation
+  - Depth Estimation
+- Note: this repo may be not well-organized, and if you have any confusion or relevant idea, feel free to contact me at huangjiangyong@pku.edu.cn.
+
 #### Installation
 
 - Environment
@@ -12,16 +20,12 @@
 - Requirements
 
   ```bash
+  conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
   pip install -r requirements.txt
   ```
 
-- Compile CUDA (in case of deformable mode)
+- Dependencies about VQGAN. Please refer to '*Training on custom data*' in [VQGAN](https://github.com/CompVis/taming-transformers) for setup. Specify the configurations and finish stage-one training, which we are going to utilize during stage-two for quantized representation.
 
-  ```bash
-  cd ./model/ops
-  sh ./make.sh
-  python test.py   # unit test (should see all checking is True)
-  ```
 
 #### Data preparation
 
@@ -41,9 +45,14 @@
 - Run distributed training
 
   ```bash
-  python train_distr.py exp_name=${your_exp_name} task=[bbox]   # bbox task
-  python train_distr.py exp_name=${your_exp_name} task=[dense]   # dense task
-  python train_distr.py exp_name=${your_exp_name} task=[bbox,dense]   # joint training
+    python train_distr.py exp_name=${your_exp_name} task=[bbox]   # bbox task
+    
+    python train_distr.py exp_name=${your_exp_name} task=[mask]   # mask task
+    
+    python train_distr.py exp_name=${your_exp_name} task=[depth]   # depth task
+    
+    # joint training
+    python train_distr.py exp_name=${your_exp_name} task=[bbox,mask,depth]
   ```
 
 #### Evaluation
@@ -53,5 +62,3 @@
   ```bash
   python eval_testset.py exp_name=${your_exp_name} task={your_task}
   ```
-
-  

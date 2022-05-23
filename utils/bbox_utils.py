@@ -1,6 +1,7 @@
 import numpy as np
 import skimage.draw as skdraw
 import torch
+import cv2
 from torch.nn.functional import interpolate
 
 
@@ -65,24 +66,25 @@ def vis_bbox(bbox, img, color=(255, 0, 0), modify=False, fmt='ncxcywh'):
     x2 = max(x1, min(x2, im_w-1))
     y1 = max(0, min(y1, im_h-1))
     y2 = max(y1, min(y2, im_h-1))
-    r = [y1, y1, y2, y2]
-    c = [x1, x2, x2, x1]
+    # r = [y1, y1, y2, y2]
+    # c = [x1, x2, x2, x1]
 
     if modify == True:
-        img_ = img
+        img_ = np.ascontiguousarray(img)
     else:
         img_ = np.copy(img)
 
     if len(img.shape) == 2:
         color = (color[0],)
 
-    rr, cc = skdraw.polygon_perimeter(r, c, img.shape[:2])   # curve
+    # rr, cc = skdraw.polygon_perimeter(r, c, img.shape[:2])   # curve
     
-    if len(img.shape) == 3:
-        for k in range(3):
-            img_[rr, cc, k] = color[k]
-    elif len(img.shape) == 2:
-        img_[rr, cc] = color[0]
+    # if len(img.shape) == 3:
+    #     for k in range(3):
+    #         img_[rr, cc, k] = color[k]
+    # elif len(img.shape) == 2:
+    #     img_[rr, cc] = color[0]
+    cv2.rectangle(img_, [int(x1),int(y1)], [int(x2),int(y2)], color, 5)
 
     return img_
 

@@ -8,7 +8,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model.cond_vito import ViTo
+from model.vito import ViTo
 from model.metrics import refexp_metrics
 from dataset.generic_dataset import GenericDataset, collate_fn
 from utils.bbox_utils import seq2bbox, seq2dense

@@ -7,7 +7,7 @@ import torch
 import utils.io as io
 from utils.bbox_utils import seq2bbox, seq2dense
 from .evaluator import Evaluator
-from .cond_vito import encode_txt, encode_img, encode_tgt
+from .vito import encode_txt, encode_img, encode_tgt
 
 
 def refexp_metrics(model, dataloader, cfg):

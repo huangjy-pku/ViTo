@@ -4,7 +4,7 @@ from transformers import RobertaTokenizer, RobertaModel
 class RoBERTa(nn.Module):
     def __init__(self, cfg=None):
         super().__init__()
-        cache_dir = '/scratch/huangjiangyong/data/roberta-base'
+        cache_dir = '/mnt/huangjiangyong/roberta-base'
         self.tokenizer = RobertaTokenizer.from_pretrained(cache_dir)
         self.model = RobertaModel.from_pretrained(cache_dir)
 

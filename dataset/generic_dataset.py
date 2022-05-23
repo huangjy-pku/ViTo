@@ -18,6 +18,7 @@ depth_queries = ['estimate depth map of the image', 'generate the depth estimati
 
 
 def make_coco_transforms(image_set, high_resolution, cautious):
+    normalize = T.Compose([T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     if high_resolution:
         scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
         max_size = 1333
@@ -52,7 +53,8 @@ def make_coco_transforms(image_set, high_resolution, cautious):
         return T.Compose(
             [
                 T.RandomResize([scales[-1]], max_size=max_size),
-                T.ToTensor(),
+                # T.ToTensor()
+                normalize,
             ]
         )
 
@@ -131,7 +133,7 @@ class GenericDataset(Dataset):
             if task == 'depth':
                 self.transform = make_coco_transforms(subset, high_resolution=False, cautious=False)
             else:
-                self.transform = make_coco_transforms(subset, high_resolution=False, cautious=True)
+                self.transform = make_coco_transforms(subset, high_resolution=True, cautious=True)
     
     def __len__(self):
         return len(self.samples)
@@ -236,7 +238,7 @@ class GenericDataset(Dataset):
                 query = target['query']
                 target = target['depth'] 
             
-        img, target = square_refine(img, target)
+        # img, target = square_refine(img, target)
 
         if self.task == 'depth':
             target = self.depth_process(target, mode='linear')

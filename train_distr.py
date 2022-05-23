@@ -15,7 +15,7 @@ from tqdm import tqdm
 from warmup_scheduler import GradualWarmupScheduler
 from pytorch_transformers.optimization import WarmupLinearSchedule
 
-from model.cond_vito import ViTo, encode_txt, encode_img, encode_tgt
+from model.vito import ViTo, encode_txt, encode_img, encode_tgt
 from model.metrics import refexp_metrics
 from dataset.generic_dataset import collate_fn
 from dataset.multitask_dataset import MultitaskDataset
